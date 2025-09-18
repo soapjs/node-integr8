@@ -1,4 +1,5 @@
-import { DBStateManager as IDBStateManager, Integr8Config, DBStrategy } from '../types';
+import { DBStateManager as IDBStateManager, Integr8Config, DBStrategy, SeedConfig } from '../types';
+import { TypeORMAdapter } from '../adapters/typeorm-adapter';
 
 export class DBStateManager implements IDBStateManager {
   private config: Integr8Config;
@@ -173,7 +174,46 @@ export class DBStateManager implements IDBStateManager {
       return;
     }
     
-    console.log(`Running seed command: ${this.config.seed.command}`);
+    // Check if we have TypeORM entities configuration
+    if (this.config.seed.typeorm || this.config.seed.entities) {
+      await this.runTypeORMSeeding();
+    } else if (this.config.seed.command) {
+      await this.runCommandSeeding();
+    }
+  }
+
+  private async runTypeORMSeeding(): Promise<void> {
+    console.log('Running TypeORM seeding...');
+    
+    try {
+      // Create a mock connection for seeding
+      // In real implementation, this would connect to the actual database
+      const mockConnection = {
+        getRepository: (entityClass: any) => ({
+          save: async (entity: any) => {
+            console.log(`Saving ${entityClass.name}:`, entity);
+            return entity;
+          },
+          create: (data: any) => data,
+          clear: async () => {
+            console.log(`Clearing ${entityClass.name}`);
+          }
+        }),
+        runMigrations: async () => {
+          console.log('Running migrations...');
+        }
+      };
+
+      await TypeORMAdapter.runSeeding(mockConnection, this.config.seed!);
+      console.log('TypeORM seeding completed successfully');
+    } catch (error) {
+      console.error('TypeORM seeding failed:', error);
+      throw error;
+    }
+  }
+
+  private async runCommandSeeding(): Promise<void> {
+    console.log(`Running seed command: ${this.config.seed!.command}`);
     
     // This would execute the seed command
     // Could be a shell command, SQL file, or application command
@@ -182,8 +222,8 @@ export class DBStateManager implements IDBStateManager {
     const execAsync = promisify(exec);
     
     try {
-      const { stdout, stderr } = await execAsync(this.config.seed.command, {
-        timeout: this.config.seed.timeout || 30000,
+      const { stdout, stderr } = await execAsync(this.config.seed!.command!, {
+        timeout: this.config.seed!.timeout || 30000,
         env: {
           ...process.env,
           WORKER_ID: this.workerId,

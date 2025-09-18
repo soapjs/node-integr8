@@ -10,6 +10,10 @@ Framework-agnostic integration testing with Testcontainers. Test your APIs again
 - **Override System**: Mock external services while keeping real database
 - **Parallel Testing**: Isolated environments for each test worker
 - **CLI Tools**: Easy setup and management
+- **Test Template Generation**: Auto-generate tests from route discovery commands
+- **AST-based Test Updates**: Safely add endpoints to existing test files
+- **Route Discovery**: Framework-agnostic endpoint discovery system
+- **Multiple Test Scenarios**: Generate success, error, and validation tests
 
 ## What This Solves
 
@@ -18,6 +22,10 @@ Framework-agnostic integration testing with Testcontainers. Test your APIs again
 - **Fast Feedback**: Savepoint rollbacks instead of full database reseeds
 - **Easy Setup**: One command to spin up your entire test environment
 - **Framework Independence**: Switch frameworks without changing your tests
+- **Test Coverage**: Automatically generate tests for all your API endpoints
+- **Test Maintenance**: Safely add new endpoints without breaking existing tests
+- **Framework Agnostic**: Works with any web framework through route discovery
+- **Test Consistency**: Standardized test patterns across your entire API
 
 ## Architecture
 
@@ -80,13 +88,35 @@ export default createConfig({
 });
 ```
 
-### 4. Write Tests
+### 4. Generate Tests
 
+```bash
+# Generate test templates from your routes
+npx integr8 generate --command "npx soap list-routes" --scenarios
+
+# Add individual endpoints as needed
+npx integr8 add-endpoint "GET /users/:id" --scenarios
+```
+
+### 5. Test Organization
+
+Tests are organized by **controller** for optimal performance and maintainability:
+
+```
+tests/
+├── integration/
+│   ├── users.integration.test.ts      # All /users/* endpoints
+│   ├── products.integration.test.ts  # All /products/* endpoints
+│   └── orders.integration.test.ts    # All /orders/* endpoints
+```
+
+**Generated test structure:**
 ```typescript
-import { defineScenario, setupEnvironment, teardownEnvironment } from 'integr8';
+// users.integration.test.ts
+import { defineScenario, setupEnvironment, teardownEnvironment } from '@soapjs/integr8';
 
 beforeAll(async () => {
-  const config = require('./integr8.config.ts').default;
+  const config = require('../integr8.config.ts').default;
   await setupEnvironment(config);
 });
 
@@ -94,18 +124,48 @@ afterAll(async () => {
   await teardownEnvironment();
 });
 
-test('should create user', async ({ http, db }) => {
-  const response = await http.post('/users', {
-    name: 'John Doe',
-    email: 'john@example.com'
+describe('Users API Integration Tests', () => {
+  describe('GET /users', () => {
+    test('should successfully handle GET /users', async ({ http }) => {
+      const response = await http.get('/users');
+      expect(response.status).toBe(200);
+      expect(true).toBe(false); // This test needs implementation
+    });
+
+    test('should return 401 for unauthorized access to GET /users', async ({ http }) => {
+      const response = await http.get('/users');
+      expect(response.status).toBe(401);
+      expect(true).toBe(false); // This test needs implementation
+    });
   });
-  
-  expect(response.status).toBe(201);
-  expect(response.data).toHaveProperty('id');
+
+  describe('POST /users', () => {
+    test('should successfully handle POST /users', async ({ http }) => {
+      const requestData = { name: 'Test Name', email: 'test@example.com' };
+      const response = await http.post('/users', requestData);
+      expect(response.status).toBe(201);
+      expect(true).toBe(false); // This test needs implementation
+    });
+
+    test('should return 400 for invalid data on POST /users', async ({ http }) => {
+      const requestData = { name: '', email: 'invalid-email' };
+      const response = await http.post('/users', requestData);
+      expect(response.status).toBe(400);
+      expect(true).toBe(false); // This test needs implementation
+    });
+  });
 });
 ```
 
-### 5. Run Tests
+**Why Controller-based Organization?**
+
+- **Performance**: Single `beforeAll`/`afterAll` per controller (faster than per-endpoint)
+- **Maintainability**: Related endpoints grouped together logically
+- **State Management**: Easier to manage database state across related endpoints
+- **Parallel Testing**: Better isolation between different controllers
+- **AST Safety**: Safe addition of new endpoints to existing files
+
+### 6. Run Tests
 
 ```bash
 # Start environment
@@ -119,6 +179,26 @@ npx integr8 down
 ```
 
 ## 📖 Configuration
+
+### Seeding Options
+
+```typescript
+// Option 1: Command-based seeding
+seed: createSeedConfig('npm run seed')
+
+// Option 2: TypeORM entities with custom data
+seed: createTypeORMEntitiesSeedConfig(
+  [User, Product],
+  [
+    { name: 'John Doe', email: 'john@example.com' },
+    { name: 'Laptop', price: 1299.99, stock: 10 }
+  ],
+  {
+    clearBeforeSeed: true,
+    runMigrations: false
+  }
+)
+```
 
 ### Services
 
@@ -151,6 +231,21 @@ app: createAppConfig({
 })
 ```
 
+### Route Discovery Configuration
+
+```typescript
+// Configure route discovery for test generation
+routes: {
+  command: 'npx soap list-routes',  // Command to discover routes
+  outputFormat: 'json',            // Output format: 'json' | 'text' | 'auto'
+  timeout: 30000,                   // Command timeout
+  workingDirectory: process.cwd(), // Working directory
+  environment: {                    // Environment variables
+    NODE_ENV: 'test'
+  }
+}
+```
+
 ### Database Strategy
 
 ```typescript
@@ -163,6 +258,38 @@ dbStrategy: 'savepoint'  // 'savepoint' | 'schema' | 'database' | 'snapshot'
 - **snapshot**: Volume snapshots (slower but universal)
 
 ## Testing API
+
+### TypeORM Integration
+
+```typescript
+// Option 1: Manual seeding
+await TypeORMAdapter.createSeedData(connection, [
+  { name: 'John Doe', email: 'john@example.com' },
+  { name: 'Jane Smith', email: 'jane@example.com' }
+]);
+
+// Option 2: Configuration-based seeding
+await TypeORMAdapter.runSeeding(connection, {
+  typeorm: {
+    entities: [User, Product, Order],
+    data: [
+      { name: 'John Doe', email: 'john@example.com' },
+      { name: 'Laptop', price: 1299.99, stock: 10 }
+    ],
+    clearBeforeSeed: true,
+    runMigrations: false
+  }
+});
+
+// Clear all data
+await TypeORMAdapter.clearAllData(connection, [User]);
+
+// Run migrations
+await TypeORMAdapter.runMigrations(connection);
+
+// Revert migrations
+await TypeORMAdapter.revertMigrations(connection);
+```
 
 ### HTTP Client
 
@@ -285,6 +412,38 @@ npx integr8 run --pattern "*.integration.test.ts"
 npx integr8 run --watch
 ```
 
+### `integr8 generate`
+Generate test templates from route discovery command.
+
+```bash
+# Using config file (recommended)
+npx integr8 generate --output ./tests/integration
+
+# Using CLI command
+npx integr8 generate --command "npx soap list-routes" --scenarios
+
+# Different frameworks
+npx integr8 generate --command "npx nest list-routes" --format json
+npx integr8 generate --command "npx express-list-routes" --format text
+```
+
+### `integr8 add-endpoint`
+Add a single endpoint test to an existing test file.
+
+```bash
+# Add endpoint to existing file
+npx integr8 add-endpoint "GET /users/:id"
+
+# With multiple scenarios
+npx integr8 add-endpoint "POST /users" --scenarios
+
+# Specify target file
+npx integr8 add-endpoint "GET /users/:id" --file ./tests/integration/users.integration.test.ts
+
+# Dry run (preview changes)
+npx integr8 add-endpoint "GET /users/:id" --dry-run
+```
+
 ## Best Practices
 
 ### 1. Use Appropriate DB Strategy
@@ -340,30 +499,70 @@ parallelIsolation: 'schema'
 parallelIsolation: 'none'
 ```
 
+### 5. Generate Test Templates
+
+```bash
+# Generate all tests from routes (controller-based organization)
+npx integr8 generate --command "npx soap list-routes" --scenarios
+
+# Add individual endpoints to existing files
+npx integr8 add-endpoint "GET /users/:id" --scenarios
+
+# Use dry-run to preview changes
+npx integr8 add-endpoint "POST /users" --dry-run
+```
+
+**Test Organization Strategy:**
+- **Controller-based**: One file per controller (e.g., `users.integration.test.ts`)
+- **Endpoint grouping**: All endpoints for a controller in one file
+- **Scenario coverage**: Multiple test scenarios per endpoint (success, error, validation)
+- **Safe updates**: AST-based addition of new endpoints without breaking existing tests
+
+### 6. Framework-Specific Route Discovery
+
+```bash
+# SoapJS
+npx integr8 generate --command "npx soap list-routes" --format json
+
+# NestJS
+npx integr8 generate --command "npx nest list-routes" --format json
+
+# Express.js
+npx integr8 generate --command "npx express-list-routes" --format text
+
+# Custom script
+npx integr8 generate --command "node scripts/list-routes.js" --format json
+```
+
 ## Framework Adapters
 
 ### Express
 
 ```typescript
-import { ExpressAdapter } from 'integr8';
+import { ExpressAdapter } from '@soapjs/integr8';
 
 // Add to your Express app
 app.use('/__test__', ExpressAdapter.createTestMiddleware());
 ```
 
-### NestJS
+### NestJS + TypeORM
 
 ```typescript
-import { NestAdapter } from 'integr8';
+import { TypeORMAdapter } from '@soapjs/integr8';
 
 // In your NestJS app
-app.use('/__test__', NestAdapter.createTestMiddleware());
+const testModule = TypeORMAdapter.createTestModule();
+
+// Seed data with TypeORM
+await TypeORMAdapter.createSeedData(connection, [
+  { name: 'John Doe', email: 'john@example.com' }
+]);
 ```
 
 ### Fastify
 
 ```typescript
-import { FastifyAdapter } from 'integr8';
+import { FastifyAdapter } from '@soapjs/integr8';
 
 // In your Fastify app
 app.register(FastifyAdapter.createTestPlugin());
@@ -373,21 +572,29 @@ app.register(FastifyAdapter.createTestPlugin());
 
 ### v0.1 (Current)
 - PostgreSQL + Express
+- NestJS + TypeORM support
 - Savepoint & Schema strategies
 - Basic CLI tools
 - Override system
+- **Test template generation**
+- **AST-based endpoint addition**
+- **Route discovery system**
 
 ### v0.2 (Next)
 - MongoDB support
 - Redis integration
-- NestJS & Fastify adapters
+- Fastify adapter
 - Runtime override endpoint
+- **API coverage analysis**
+- **Test organization tools**
 
 ### v0.3 (Future)
 - Kafka/NATS helpers
 - Snapshot volumes
 - Vitest integration
 - CI artifacts
+- **Interactive test generation**
+- **Test performance optimization**
 
 ## Contributing
 

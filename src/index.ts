@@ -11,6 +11,10 @@ export { ClockManager } from './core/clock-manager';
 export { EventBusManager } from './core/event-bus-manager';
 export * from './scenario-runner';
 export * from './adapters/express-adapter';
+export * from './adapters/typeorm-adapter';
+export { TestTemplateGenerator, TestTemplateOptions, TestTemplate } from './templates/test-template-generator';
+export { RouteDiscoveryService } from './core/route-discovery-service';
+export { TestFileUpdater, TestFileUpdateOptions } from './core/test-file-updater';
 
 // Main API functions
 export { defineScenario, setupEnvironment, teardownEnvironment } from './scenario-runner';

@@ -6,6 +6,7 @@ export interface Integr8Config {
   adapters?: AdapterConfig[];
   parallelIsolation?: 'schema' | 'db' | 'none';
   testMode?: TestModeConfig;
+  routes?: RoutesConfig;
 }
 
 export interface ServiceConfig {
@@ -45,8 +46,17 @@ export interface AppConfig {
 }
 
 export interface SeedConfig {
-  command: string;
+  command?: string;
   timeout?: number;
+  entities?: any[];
+  typeorm?: TypeORMSeedConfig;
+}
+
+export interface TypeORMSeedConfig {
+  entities: any[];
+  data?: any[];
+  clearBeforeSeed?: boolean;
+  runMigrations?: boolean;
 }
 
 export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot';
@@ -185,4 +195,29 @@ export interface Adapter {
   initialize(config: AdapterConfig): Promise<void>;
   setupOverrides(overrideManager: OverrideManager): Promise<void>;
   teardown(): Promise<void>;
+}
+
+export interface RoutesConfig {
+  command?: string;
+  outputFormat?: 'json' | 'text' | 'auto';
+  timeout?: number;
+  workingDirectory?: string;
+  environment?: Record<string, string>;
+}
+
+export interface RouteInfo {
+  method: string;
+  path: string;
+  controller?: string;
+  handler?: string;
+  group?: string;
+}
+
+export interface TestScenario {
+  description: string;
+  expectedStatus: number;
+  requestData?: any;
+  queryParams?: any;
+  pathParams?: any;
+  expectedResponse?: any;
 }

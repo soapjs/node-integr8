@@ -146,6 +146,30 @@ export function createSeedConfig(command: string, timeout?: number): SeedConfig 
   };
 }
 
+export function createTypeORMSeedConfig(timeout?: number): SeedConfig {
+  return {
+    command: 'npm run seed',
+    timeout: timeout || 30000
+  };
+}
+
+export function createTypeORMEntitiesSeedConfig(
+  entities: any[], 
+  data?: any[], 
+  options?: { clearBeforeSeed?: boolean; runMigrations?: boolean; timeout?: number }
+): SeedConfig {
+  return {
+    timeout: options?.timeout || 30000,
+    typeorm: {
+      entities,
+      data: data || [],
+      clearBeforeSeed: options?.clearBeforeSeed ?? true,
+      runMigrations: options?.runMigrations ?? false
+    }
+  };
+}
+
+
 export function createExpressAdapter(): AdapterConfig {
   return {
     type: 'express',
@@ -156,7 +180,11 @@ export function createExpressAdapter(): AdapterConfig {
 export function createNestAdapter(config?: Record<string, any>): AdapterConfig {
   return {
     type: 'nest',
-    config: config || {}
+    config: {
+      typeorm: true,
+      testModule: true,
+      ...config
+    }
   };
 }
 

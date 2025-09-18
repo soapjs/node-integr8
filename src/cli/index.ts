@@ -9,6 +9,7 @@ import { downCommand } from './commands/down';
 import { runCommand } from './commands/run';
 import { generateCommand } from './commands/generate';
 import { addEndpointCommand } from './commands/add-endpoint';
+import { ciCommand } from './commands/ci';
 
 const program = new Command();
 
@@ -43,6 +44,16 @@ program
   .option('-p, --pattern <pattern>', 'Test pattern to run')
   .option('-w, --watch', 'Watch mode')
   .action(runCommand);
+
+program
+  .command('ci')
+  .description('Run integration tests in CI mode (up + run + down)')
+  .option('-c, --config <path>', 'Path to integr8 config file', 'integr8.config.ts')
+  .option('-p, --pattern <pattern>', 'Test pattern to run')
+  .option('-t, --timeout <ms>', 'Total timeout for CI run', '600000')
+  .option('--verbose', 'Verbose output')
+  .option('--no-cleanup', 'Skip cleanup (for debugging)')
+  .action(ciCommand);
 
 program
   .command('generate')

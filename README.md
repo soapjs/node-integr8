@@ -167,6 +167,7 @@ describe('Users API Integration Tests', () => {
 
 ### 6. Run Tests
 
+**Development workflow:**
 ```bash
 # Start environment
 npx integr8 up
@@ -176,6 +177,12 @@ npx integr8 run
 
 # Stop environment
 npx integr8 down
+```
+
+**CI/CD workflow:**
+```bash
+# Single command (up + run + down)
+npx integr8 ci
 ```
 
 ## 📖 Configuration
@@ -412,6 +419,20 @@ npx integr8 run --pattern "*.integration.test.ts"
 npx integr8 run --watch
 ```
 
+### `integr8 ci`
+Run integration tests in CI mode (up + run + down).
+
+```bash
+# CI/CD pipeline
+npx integr8 ci
+
+# With options
+npx integr8 ci --pattern "*.integration.test.ts" --timeout 600000 --verbose
+
+# Debug mode (skip cleanup)
+npx integr8 ci --no-cleanup
+```
+
 ### `integr8 generate`
 Generate test templates from route discovery command.
 
@@ -442,6 +463,66 @@ npx integr8 add-endpoint "GET /users/:id" --file ./tests/integration/users.integ
 
 # Dry run (preview changes)
 npx integr8 add-endpoint "GET /users/:id" --dry-run
+```
+
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml
+name: Integration Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run integration tests
+        run: npx integr8 ci --verbose
+```
+
+### GitLab CI
+
+```yaml
+integration-tests:
+  stage: test
+  image: node:18-alpine
+  
+  before_script:
+    - npm ci
+  
+  script:
+    - npx integr8 ci --pattern "*.integration.test.ts"
+```
+
+### Jenkins Pipeline
+
+```groovy
+pipeline {
+    agent any
+    
+    stages {
+        stage('Integration Tests') {
+            steps {
+                sh 'npm ci'
+                sh 'npx integr8 ci --timeout 600000'
+            }
+        }
+    }
+}
 ```
 
 ## Best Practices
@@ -533,6 +614,35 @@ npx integr8 generate --command "npx express-list-routes" --format text
 # Custom script
 npx integr8 generate --command "node scripts/list-routes.js" --format json
 ```
+
+### 7. Development vs CI Workflows
+
+**Development (flexible):**
+```bash
+# Start environment once
+npx integr8 up
+
+# Run tests multiple times
+npx integr8 run
+npx integr8 run --watch
+npx integr8 run --pattern "users.*"
+
+# Stop when done
+npx integr8 down
+```
+
+**CI/CD (atomic):**
+```bash
+# Single command for pipeline
+npx integr8 ci
+
+# With specific options
+npx integr8 ci --pattern "*.integration.test.ts" --timeout 600000 --verbose
+```
+
+**Key differences:**
+- **Development**: Manual control, multiple test runs, debugging
+- **CI/CD**: Atomic execution, always cleanup, single command
 
 ## Framework Adapters
 

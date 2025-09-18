@@ -1,4 +1,4 @@
-import { defineScenario, setupEnvironment, teardownEnvironment } from 'integr8';
+import { defineScenario, setupEnvironment, teardownEnvironment } from '@soapjs/integr8';
 
 // Global setup
 beforeAll(async () => {

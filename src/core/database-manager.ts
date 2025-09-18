@@ -1,11 +1,11 @@
 import { DatabaseManager as IDatabaseManager, Transaction, Integr8Config, DBStrategy } from '../types';
-import { DBStateManager } from './DBStateManager';
+import { DBStateManager } from './db-state-manager';
 
 export class DatabaseManager implements IDatabaseManager {
   private config: Integr8Config;
   private workerId: string;
   private stateManager: DBStateManager;
-  private connectionString: string;
+  private connectionString!: string;
   private currentSavepoint?: string;
   private currentSchema?: string;
   private currentDatabase?: string;

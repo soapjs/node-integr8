@@ -48,7 +48,7 @@ export async function initCommand(options: { template: string }) {
 }
 
 function getConfigTemplate(template: string): string {
-  const baseConfig = `import { createConfig, createPostgresService, createAppConfig, createSeedConfig, createExpressAdapter } from 'integr8';
+  const baseConfig = `import { createConfig, createPostgresService, createAppConfig, createSeedConfig, createExpressAdapter } from '@soapjs/integr8';
 
 export default createConfig({
   services: [

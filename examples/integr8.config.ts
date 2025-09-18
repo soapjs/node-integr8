@@ -1,4 +1,4 @@
-import { createConfig, createPostgresService, createAppConfig, createSeedConfig, createExpressAdapter } from 'integr8';
+import { createConfig, createPostgresService, createAppConfig, createSeedConfig, createExpressAdapter } from '@soapjs/integr8';
 
 export default createConfig({
   services: [

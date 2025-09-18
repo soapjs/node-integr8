@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import ora from 'ora';
-import { EnvironmentOrchestrator } from '../../core/EnvironmentOrchestrator';
+import { EnvironmentOrchestrator } from '../../core/environment-orchestrator';
 
 export async function upCommand(options: { config: string; detach: boolean }) {
   const spinner = ora('Starting test environment...').start();
@@ -44,7 +44,7 @@ export async function upCommand(options: { config: string; detach: boolean }) {
       setInterval(() => {}, 1000);
     }
 
-  } catch (error) {
+  } catch (error: any) {
     spinner.fail('Failed to start test environment');
     console.error(error);
     process.exit(1);
@@ -55,7 +55,7 @@ async function loadConfig(configPath: string) {
   try {
     const config = require(require('path').resolve(configPath));
     return config.default || config;
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`Failed to load config from ${configPath}: ${error.message}`);
   }
 }

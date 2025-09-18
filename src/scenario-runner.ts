@@ -1,4 +1,4 @@
-import { EnvironmentOrchestrator } from './core/EnvironmentOrchestrator';
+import { EnvironmentOrchestrator } from './core/environment-orchestrator';
 import { Integr8Config, ScenarioDefinition, EnvironmentContext } from './types';
 
 // Global state for the scenario runner
@@ -43,7 +43,7 @@ export async function runScenario(scenario: ScenarioDefinition): Promise<void> {
     console.log(`Running scenario: ${scenario.name}`);
     
     // Set up scenario-specific context
-    context.ctx.setScenarioId(scenario.name);
+    context.ctx.scenarioId = scenario.name;
     
     // Run the scenario function
     await scenario.fn(context);

@@ -3,18 +3,18 @@ import {
   StartedTestContainer, 
   Wait,
   Network,
-  ReusableTestContainer
+  StartedNetwork
 } from 'testcontainers';
 import { Integr8Config, EnvironmentOrchestrator as IEnvironmentOrchestrator, EnvironmentContext, ServiceConfig, AppConfig } from '../types';
-import { HttpClient } from './HttpClient';
-import { DatabaseManager } from './DatabaseManager';
-import { TestContext } from './TestContext';
-import { ClockManager } from './ClockManager';
-import { EventBusManager } from './EventBusManager';
+import { HttpClient } from './http-client';
+import { DatabaseManager } from './database-manager';
+import { TestContext } from './test-context';
+import { ClockManager } from './clock-manager';
+import { EventBusManager } from './event-bus-manager';
 
 export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
   private config: Integr8Config;
-  private network: Network;
+  private network!: StartedNetwork;
   private containers: Map<string, StartedTestContainer> = new Map();
   private appContainer?: StartedTestContainer;
   private context?: EnvironmentContext;
@@ -29,7 +29,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     console.log(`🚀 Starting environment for worker ${this.workerId}`);
     
     // Create network
-    this.network = await Network.newNetwork();
+    this.network = await new Network().start();
     
     // Start services
     await this.startServices();
@@ -62,7 +62,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     
     // Remove network
     if (this.network) {
-      await this.network.remove();
+      await this.network.stop();
     }
     
     console.log(`✅ Environment stopped for worker ${this.workerId}`);
@@ -160,7 +160,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
       case 'mailhog':
         container = new GenericContainer('mailhog/mailhog:latest')
           .withExposedPorts(1025, 8025)
-          .withWaitStrategy(Wait.forHttp('/'));
+          .withWaitStrategy(Wait.forHttp('/', 8025));
         break;
         
       default:
@@ -176,18 +176,17 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     }
     
     if (serviceConfig.volumes) {
-      for (const volume of serviceConfig.volumes) {
-        container = container.withBindMount(volume.host, volume.container, volume.mode || 'rw');
-      }
+      const bindMounts = serviceConfig.volumes.map(volume => ({
+        source: volume.host,
+        target: volume.container,
+        mode: volume.mode || 'rw'
+      }));
+      container = container.withBindMounts(bindMounts);
     }
     
     if (serviceConfig.healthcheck) {
       container = container.withWaitStrategy(
         Wait.forHealthCheck()
-          .withInterval(serviceConfig.healthcheck.interval || 1000)
-          .withTimeout(serviceConfig.healthcheck.timeout || 30000)
-          .withRetries(serviceConfig.healthcheck.retries || 3)
-          .withStartPeriod(serviceConfig.healthcheck.startPeriod || 0)
       );
     }
     
@@ -229,20 +228,20 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         ...this.config.app.environment
       })
       .withNetwork(this.network)
-      .withCommand(this.config.app.command);
+      .withCommand(this.config.app.command.split(' '));
     
     if (this.config.app.volumes) {
-      for (const volume of this.config.app.volumes) {
-        container = container.withBindMount(volume.host, volume.container, volume.mode || 'rw');
-      }
+      const bindMounts = this.config.app.volumes.map(volume => ({
+        source: volume.host,
+        target: volume.container,
+        mode: volume.mode || 'rw'
+      }));
+      container = container.withBindMounts(bindMounts);
     }
     
     // Wait for health check
     container = container.withWaitStrategy(
-      Wait.forHttp(this.config.app.healthcheck)
-        .withInterval(1000)
-        .withTimeout(60000)
-        .withRetries(10)
+      Wait.forHttp(this.config.app.healthcheck, this.config.app.port)
     );
     
     this.appContainer = await container.start();

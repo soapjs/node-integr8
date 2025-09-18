@@ -42,7 +42,7 @@ Retry logic, timeout handling, and response assertions.
 ### 1. Install
 
 ```bash
-npm install integr8
+npm install @soapjs/integr8
 ```
 
 ### 2. Initialize

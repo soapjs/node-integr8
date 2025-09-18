@@ -1,6 +1,6 @@
 import { TestContext as ITestContext, OverrideManager, SnapshotManager } from '../types';
-import { OverrideManagerImpl } from './OverrideManager';
-import { SnapshotManagerImpl } from './SnapshotManager';
+import { OverrideManagerImpl } from './override-manager';
+import { SnapshotManagerImpl } from './snapshot-manager';
 
 export class TestContext implements ITestContext {
   public override: OverrideManager;

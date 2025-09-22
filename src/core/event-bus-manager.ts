@@ -1,4 +1,4 @@
-import { EventBusManager as IEventBusManager, Integr8Config } from '../types';
+import { IEventBusManager, Integr8Config } from '../types';
 
 export class EventBusManager implements IEventBusManager {
   private config: Integr8Config;

@@ -1,8 +1,8 @@
-import { DatabaseManager as IDatabaseManager, Transaction, Integr8Config, DBStrategy } from '../types';
+import { IDatabaseManager, Transaction, ServiceConfig, DBStrategy } from '../types';
 import { DBStateManager } from './db-state-manager';
 
 export class DatabaseManager implements IDatabaseManager {
-  private config: Integr8Config;
+  private serviceConfig: ServiceConfig | undefined;
   private workerId: string;
   private stateManager: DBStateManager;
   private connectionString!: string;
@@ -10,10 +10,10 @@ export class DatabaseManager implements IDatabaseManager {
   private currentSchema?: string;
   private currentDatabase?: string;
 
-  constructor(config: Integr8Config, workerId: string) {
-    this.config = config;
+  constructor(serviceConfig: ServiceConfig | undefined, workerId: string) {
+    this.serviceConfig = serviceConfig;
     this.workerId = workerId;
-    this.stateManager = new DBStateManager(config, workerId);
+    this.stateManager = new DBStateManager(serviceConfig, workerId);
   }
 
   async initialize(): Promise<void> {
@@ -43,7 +43,8 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   async snapshot(name: string): Promise<void> {
-    switch (this.config.dbStrategy) {
+    const dbStrategy = this.serviceConfig?.dbStrategy || 'savepoint';
+    switch (dbStrategy) {
       case 'savepoint':
         this.currentSavepoint = await this.stateManager.createSavepoint();
         break;
@@ -64,7 +65,8 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   async restore(name: string): Promise<void> {
-    switch (this.config.dbStrategy) {
+    const dbStrategy = this.serviceConfig?.dbStrategy || 'savepoint';
+    switch (dbStrategy) {
       case 'savepoint':
         if (this.currentSavepoint) {
           await this.stateManager.rollbackToSavepoint(this.currentSavepoint);
@@ -93,19 +95,36 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   getConnectionString(): string {
-    const postgresService = this.config.services.find(s => s.type === 'postgres');
-    const mysqlService = this.config.services.find(s => s.type === 'mysql');
-    const mongoService = this.config.services.find(s => s.type === 'mongo');
-
-    if (postgresService) {
-      return `postgresql://test:test@localhost:5432/test`;
-    } else if (mysqlService) {
-      return `mysql://test:test@localhost:3306/test`;
-    } else if (mongoService) {
-      return `mongodb://test:test@localhost:27017/test`;
+    if (!this.serviceConfig) {
+      throw new Error('No database service configuration found');
     }
 
-    throw new Error('No supported database service found');
+    const serviceType = this.serviceConfig.type;
+    const port = this.serviceConfig.ports?.[0] || this.getDefaultPort(serviceType);
+
+    switch (serviceType) {
+      case 'postgres':
+        return `postgresql://test:test@localhost:${port}/test`;
+      case 'mysql':
+        return `mysql://test:test@localhost:${port}/test`;
+      case 'mongo':
+        return `mongodb://localhost:${port}/test`;
+      default:
+        throw new Error(`Unsupported database type: ${serviceType}`);
+    }
+  }
+
+  private getDefaultPort(serviceType: string): number {
+    switch (serviceType) {
+      case 'postgres':
+        return 5432;
+      case 'mysql':
+        return 3306;
+      case 'mongo':
+        return 27017;
+      default:
+        return 5432;
+    }
   }
 }
 

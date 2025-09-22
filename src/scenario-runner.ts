@@ -1,5 +1,5 @@
 import { EnvironmentOrchestrator } from './core/environment-orchestrator';
-import { Integr8Config, ScenarioDefinition, EnvironmentContext } from './types';
+import { Integr8Config, ScenarioDefinition, IEnvironmentContext } from './types';
 
 // Global state for the scenario runner
 let orchestrator: EnvironmentOrchestrator | null = null;
@@ -21,7 +21,7 @@ export async function teardownEnvironment(): Promise<void> {
 
 export function defineScenario(
   name: string, 
-  fn: (env: EnvironmentContext) => Promise<void> | void,
+  fn: (env: IEnvironmentContext) => Promise<void> | void,
   options?: { timeout?: number; retries?: number }
 ): ScenarioDefinition {
   return {
@@ -76,4 +76,12 @@ export function createVitestSetup(integr8Config: Integr8Config) {
       await teardownEnvironment();
     }
   };
+}
+
+// Context provider for Jest/Vitest tests
+export function getEnvironmentContext(): IEnvironmentContext {
+  if (!orchestrator) {
+    throw new Error('Environment not set up. Call setupEnvironment() first.');
+  }
+  return orchestrator.getContext();
 }

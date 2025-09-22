@@ -1,15 +1,8 @@
-import { Integr8Config, ServiceConfig, AppConfig, SeedConfig, AdapterConfig } from '../types';
+import { Integr8Config, ServiceConfig, SeedConfig, AdapterConfig } from '../types';
 
 export function createConfig(config: Partial<Integr8Config>): Integr8Config {
   const defaultConfig: Integr8Config = {
     services: [],
-    app: {
-      command: 'npm start',
-      healthcheck: '/health',
-      port: 3000
-    },
-    dbStrategy: 'savepoint',
-    parallelIsolation: 'schema',
     testMode: {
       controlPort: 3001,
       overrideEndpoint: '/__test__/override',
@@ -20,14 +13,11 @@ export function createConfig(config: Partial<Integr8Config>): Integr8Config {
   return {
     ...defaultConfig,
     ...config,
-    app: {
-      ...defaultConfig.app,
-      ...config.app
-    },
-    testMode: {
+    services: config.services || [],
+    testMode: config.testMode ? {
       ...defaultConfig.testMode,
       ...config.testMode
-    }
+    } : defaultConfig.testMode
   };
 }
 
@@ -49,6 +39,9 @@ export function createPostgresService(name: string = 'postgres', options?: Parti
       timeout: 30000,
       retries: 3
     },
+    containerName: options?.containerName || `${name}-db`,
+    dbStrategy: options?.dbStrategy || 'schema',
+    parallelIsolation: options?.parallelIsolation || 'schema',
     ...options
   };
 }
@@ -72,6 +65,9 @@ export function createMysqlService(name: string = 'mysql', options?: Partial<Ser
       timeout: 30000,
       retries: 3
     },
+    containerName: options?.containerName || `${name}-db`,
+    dbStrategy: options?.dbStrategy || 'schema',
+    parallelIsolation: options?.parallelIsolation || 'schema',
     ...options
   };
 }
@@ -94,6 +90,9 @@ export function createMongoService(name: string = 'mongo', options?: Partial<Ser
       timeout: 30000,
       retries: 3
     },
+    containerName: options?.containerName || `${name}-db`,
+    dbStrategy: options?.dbStrategy || 'schema',
+    parallelIsolation: options?.parallelIsolation || 'schema',
     ...options
   };
 }
@@ -110,6 +109,7 @@ export function createRedisService(name: string = 'redis', options?: Partial<Ser
       timeout: 30000,
       retries: 3
     },
+    containerName: options?.containerName || `${name}-cache`,
     ...options
   };
 }
@@ -126,18 +126,29 @@ export function createMailhogService(name: string = 'mailhog', options?: Partial
       timeout: 30000,
       retries: 3
     },
+    containerName: options?.containerName || `${name}-mail`,
     ...options
   };
 }
 
-export function createAppConfig(config: Partial<AppConfig>): AppConfig {
+export function createAppService(name: string = 'service', options?: Partial<ServiceConfig>): ServiceConfig {
   return {
-    command: 'npm start',
-    healthcheck: '/health',
-    port: 3000,
-    ...config
+    name,
+    type: 'service',
+    mode: options?.mode || 'container',  // Default to container mode
+    image: options?.image || 'my-app:latest',
+    ports: options?.ports || [3000],
+    command: options?.command || 'npm start',
+    healthcheck: options?.healthcheck || { command: '/health' },
+    containerName: options?.containerName || name,
+    workingDirectory: options?.workingDirectory,
+    environment: options?.environment,
+    volumes: options?.volumes,
+    dependsOn: options?.dependsOn,
+    ...options
   };
 }
+
 
 export function createSeedConfig(command: string, timeout?: number): SeedConfig {
   return {

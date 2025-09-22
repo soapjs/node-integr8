@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 
-export async function downCommand(options: { config: string }) {
+export async function downCommand(options: { config: string; testType?: string }) {
   const spinner = ora('Stopping test environment...').start();
 
   try {

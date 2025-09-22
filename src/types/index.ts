@@ -1,23 +1,37 @@
 export interface Integr8Config {
   services: ServiceConfig[];
-  app: AppConfig;
-  seed?: SeedConfig;
-  dbStrategy: DBStrategy;
-  adapters?: AdapterConfig[];
-  parallelIsolation?: 'schema' | 'db' | 'none';
+  testType?: 'api' | 'e2e' | 'unit-db' | 'custom';
+  testDirectory?: string;
+  testFramework?: 'jest' | 'vitest';
+  testScenarios?: TestScenario[];
   testMode?: TestModeConfig;
-  routes?: RoutesConfig;
 }
 
 export interface ServiceConfig {
   name: string;
-  type: 'postgres' | 'mysql' | 'mongo' | 'redis' | 'kafka' | 'mailhog' | 'custom';
+  type: 'service' | 'postgres' | 'mysql' | 'mongo' | 'redis' | 'kafka' | 'mailhog' | 'custom';
+  mode?: 'local' | 'container';
+  adapter?: AdapterConfig;
   image?: string;
   ports?: number[];
   environment?: Record<string, string>;
   volumes?: VolumeConfig[];
   healthcheck?: HealthCheckConfig;
   dependsOn?: string[];
+  containerName?: string;
+  command?: string;
+  workingDirectory?: string;
+  
+  // For database services:
+  dbStrategy?: 'savepoint' | 'schema' | 'database' | 'snapshot';
+  parallelIsolation?: 'schema' | 'db' | 'none';
+  
+  // Seeding options:
+  seed?: {
+    data?: string;              // URL to folder with SQL/JSON or specific file
+    script?: string;            // npm run seed, psql -U test -d test -f /seed/seed.sql
+    timeout?: number;
+  };
 }
 
 export interface VolumeConfig {
@@ -34,16 +48,6 @@ export interface HealthCheckConfig {
   startPeriod?: number;
 }
 
-export interface AppConfig {
-  image?: string;
-  context?: string;
-  command: string;
-  healthcheck: string;
-  port: number;
-  environment?: Record<string, string>;
-  volumes?: VolumeConfig[];
-  dependsOn?: string[];
-}
 
 export interface SeedConfig {
   command?: string;
@@ -62,7 +66,7 @@ export interface TypeORMSeedConfig {
 export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot';
 
 export interface AdapterConfig {
-  type: 'express' | 'nest' | 'fastify';
+  type: string;
   config?: Record<string, any>;
 }
 
@@ -72,22 +76,22 @@ export interface TestModeConfig {
   enableFakeTimers?: boolean;
 }
 
-export interface EnvironmentContext {
-  http: HttpClient;
-  db: DatabaseManager;
-  ctx: TestContext;
-  clock?: ClockManager;
-  bus?: EventBusManager;
+export interface IEnvironmentContext {
+  http?: IHttpClient;
+  db: IDatabaseManager;
+  ctx: ITestContext;
+  clock?: IClockManager;
+  bus?: IEventBusManager;
 }
 
-export interface TestContext {
+export interface ITestContext {
   override: OverrideManager;
   snapshot: SnapshotManager;
   workerId: string;
   scenarioId: string;
 }
 
-export interface HttpClient {
+export interface IHttpClient {
   request(options: HttpRequestOptions): Promise<HttpResponse>;
   get(url: string, options?: Partial<HttpRequestOptions>): Promise<HttpResponse>;
   post(url: string, data?: any, options?: Partial<HttpRequestOptions>): Promise<HttpResponse>;
@@ -112,7 +116,7 @@ export interface HttpResponse {
   duration: number;
 }
 
-export interface DatabaseManager {
+export interface IDatabaseManager {
   query(sql: string, params?: any[]): Promise<any>;
   transaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
   snapshot(name: string): Promise<void>;
@@ -149,14 +153,14 @@ export interface SnapshotManager {
   delete(name: string): Promise<void>;
 }
 
-export interface ClockManager {
+export interface IClockManager {
   fake(): void;
   restore(): void;
   advance(ms: number): void;
   setSystemTime(date: Date): void;
 }
 
-export interface EventBusManager {
+export interface IEventBusManager {
   publish(topic: string, data: any): Promise<void>;
   subscribe(topic: string, handler: (data: any) => void): Promise<void>;
   unsubscribe(topic: string, handler: (data: any) => void): Promise<void>;
@@ -164,18 +168,18 @@ export interface EventBusManager {
 
 export interface ScenarioDefinition {
   name: string;
-  fn: (env: EnvironmentContext) => Promise<void> | void;
+  fn: (env: IEnvironmentContext) => Promise<void> | void;
   timeout?: number;
   retries?: number;
 }
 
-export interface EnvironmentOrchestrator {
+export interface IEnvironmentOrchestrator {
   start(): Promise<void>;
   stop(): Promise<void>;
   isReady(): Promise<boolean>;
   getServiceUrl(serviceName: string, port?: number): string;
   getAppUrl(): string;
-  getContext(): EnvironmentContext;
+  getContext(): IEnvironmentContext;
 }
 
 export interface DBStateManager {

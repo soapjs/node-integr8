@@ -1,4 +1,4 @@
-import { TestContext as ITestContext, OverrideManager, SnapshotManager } from '../types';
+import { ITestContext, OverrideManager, SnapshotManager } from '../types';
 import { OverrideManagerImpl } from './override-manager';
 import { SnapshotManagerImpl } from './snapshot-manager';
 

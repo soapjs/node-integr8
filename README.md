@@ -10,6 +10,7 @@ Framework-agnostic integration testing with Testcontainers. Test your APIs again
 - **Override System**: Mock external services while keeping real database
 - **Parallel Testing**: Isolated environments for each test worker
 - **CLI Tools**: Easy setup and management
+- **Multiple App Types**: Docker Compose, Local, or Container execution
 - **Test Template Generation**: Auto-generate tests from route discovery commands
 - **AST-based Test Updates**: Safely add endpoints to existing test files
 - **Route Discovery**: Framework-agnostic endpoint discovery system
@@ -56,36 +57,91 @@ npm install @soapjs/integr8
 ### 2. Initialize
 
 ```bash
-npx integr8 init
+# Docker Compose (recommended)
+npx integr8 init --app-type docker-compose
+
+# Local development
+npx integr8 init --app-type local
+
+# Container only
+npx integr8 init --app-type container
 ```
 
 This creates:
-- `integr8.config.ts` - Configuration file
+- `integr8.config.js` - Configuration file
 - `tests/` - Sample test directory
+- `Dockerfile.integr8` & `docker-compose.integr8.yml` (if docker-compose)
 - `.gitignore` - Test artifacts
 
 ### 3. Configure
 
-Edit `integr8.config.ts`:
+Edit `integr8.config.js`:
 
-```typescript
-import { createConfig, createPostgresService, createAppConfig, createSeedConfig, createExpressAdapter } from 'integr8';
-
-export default createConfig({
+#### Docker Compose (Recommended)
+```javascript
+module.exports = {
   services: [
-    createPostgresService(),
+    {
+      type: 'postgres',
+      image: 'postgres:15-alpine',
+      port: 5432,
+      environment: {
+        POSTGRES_DB: 'testdb',
+        POSTGRES_USER: 'testuser',
+        POSTGRES_PASSWORD: 'testpass'
+      }
+    }
   ],
-  app: createAppConfig({
+  app: {
+    type: 'docker-compose',
+    composeFile: 'docker-compose.yml',
+    service: 'app',
+    command: 'npm start',
+    healthcheck: '/health',
+    port: 3000
+  },
+  seed: {
+    command: 'npm run seed'
+  },
+  dbStrategy: 'savepoint',
+  adapters: [
+    { type: 'express' }
+  ],
+  testDir: 'tests'
+};
+```
+
+#### Local Development
+```javascript
+module.exports = {
+  services: [
+    {
+      type: 'postgres',
+      image: 'postgres:15-alpine',
+      port: 5432,
+      environment: {
+        POSTGRES_DB: 'testdb',
+        POSTGRES_USER: 'testuser',
+        POSTGRES_PASSWORD: 'testpass'
+      }
+    }
+  ],
+  app: {
+    type: 'local',
     command: 'npm start',
     healthcheck: '/health',
     port: 3000,
-  }),
-  seed: createSeedConfig('npm run seed'),
+    workingDirectory: '.'
+  },
+  seed: {
+    command: 'npm run seed'
+  },
   dbStrategy: 'savepoint',
   adapters: [
-    createExpressAdapter(),
+    { type: 'express' }
   ],
-});
+  testDir: 'tests'
+};
 ```
 
 ### 4. Generate Tests
@@ -186,6 +242,70 @@ npx integr8 ci
 ```
 
 ## 📖 Configuration
+
+### App Types
+
+Integr8 supports three different ways to run your application:
+
+#### 1. Docker Compose (Recommended)
+Best for production-like testing with full containerization.
+
+```javascript
+app: {
+  type: 'docker-compose',
+  composeFile: 'docker-compose.integr8.yml',
+  service: 'app',
+  command: 'npm start',
+  healthcheck: '/health',
+  port: 3000
+}
+```
+
+**Benefits:**
+- ✅ Full containerization
+- ✅ Production-like environment
+- ✅ Automatic dependency management
+- ✅ Easy to scale and maintain
+- ✅ Custom compose file support
+- ✅ Automatic DB health checks
+- ✅ Proper seeding flow
+
+#### 2. Local Development
+Best for fast development and debugging.
+
+```javascript
+app: {
+  type: 'local',
+  command: 'npm start',
+  healthcheck: '/health',
+  port: 3000,
+  workingDirectory: '.'
+}
+```
+
+**Benefits:**
+- ✅ Fastest startup
+- ✅ Easy debugging
+- ✅ Direct access to logs
+- ✅ No Docker required
+
+#### 3. Container Only
+Basic container execution without Docker Compose.
+
+```javascript
+app: {
+  type: 'container',
+  image: 'node:18',
+  command: 'npm start',
+  healthcheck: '/health',
+  port: 3000
+}
+```
+
+**Benefits:**
+- ✅ Simple container execution
+- ✅ Good for CI/CD
+- ✅ Lightweight setup
 
 ### Seeding Options
 
@@ -389,10 +509,23 @@ await ctx.bus.subscribe('user.created', (data) => {
 Initialize integr8 in your project.
 
 ```bash
+# Basic initialization with Docker Compose
 npx integr8 init
-npx integr8 init --template nest
-npx integr8 init --template fastify
+
+# With specific template and app type
+npx integr8 init --template nest --app-type docker-compose
+npx integr8 init --template express --app-type local
+npx integr8 init --template fastify --app-type container
+
+# With custom test directory and config format
+npx integr8 init --test-dir ./e2e-tests --format json --app-type local
 ```
+
+**Options:**
+- `--template <template>` - Template to use (express, nest, fastify)
+- `--test-dir <path>` - Test directory path (default: tests)
+- `--format <format>` - Config file format (js, json)
+- `--app-type <type>` - App type (docker-compose, local, container)
 
 ### `integr8 up`
 Start the test environment.
@@ -401,6 +534,7 @@ Start the test environment.
 npx integr8 up
 npx integr8 up --config custom.config.ts
 npx integr8 up --detach
+npx integr8 up --compose-file docker-compose.custom.yml
 ```
 
 ### `integr8 down`
@@ -643,6 +777,63 @@ npx integr8 ci --pattern "*.integration.test.ts" --timeout 600000 --verbose
 **Key differences:**
 - **Development**: Manual control, multiple test runs, debugging
 - **CI/CD**: Atomic execution, always cleanup, single command
+
+### 8. Docker Compose Workflow
+
+**Using default compose file:**
+```bash
+# Uses docker-compose.integr8.yml from config
+npx integr8 up
+```
+
+**Using custom compose file:**
+```bash
+# Override compose file via CLI
+npx integr8 up --compose-file docker-compose.custom.yml
+
+# Or update config
+app: {
+  type: 'docker-compose',
+  composeFile: 'docker-compose.custom.yml',
+  service: 'app'
+}
+```
+
+**Compose file structure:**
+```yaml
+# docker-compose.integr8.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-soapjs_test}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.integr8
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-soapjs_test}
+      - TEST_MODE=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+```
+
+**Flow:**
+1. **Start compose** - All services start
+2. **Wait for DB** - Health check ensures database is ready
+3. **Seed data** - Run seeding commands
+4. **App ready** - Application starts and is ready for tests
 
 ## Framework Adapters
 

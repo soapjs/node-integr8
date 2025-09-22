@@ -6,6 +6,7 @@ import { downCommand } from './down';
 
 export async function ciCommand(options: {
   config: string;
+  testType?: string;
   pattern?: string;
   timeout: number;
   verbose: boolean;
@@ -19,7 +20,7 @@ export async function ciCommand(options: {
     if (options.verbose) {
       spinner.text = 'Starting test environment...';
     }
-    await upCommand({ config: options.config, detach: false });
+    await upCommand({ config: options.config, testType: options.testType, detach: false });
 
     // 2. Run tests
     if (options.verbose) {
@@ -27,6 +28,7 @@ export async function ciCommand(options: {
     }
     await runCommand({
       config: options.config,
+      testType: options.testType,
       pattern: options.pattern,
       watch: false
     });
@@ -36,7 +38,7 @@ export async function ciCommand(options: {
       if (options.verbose) {
         spinner.text = 'Cleaning up environment...';
       }
-      await downCommand({ config: options.config });
+      await downCommand({ config: options.config, testType: options.testType });
     }
 
     const duration = Date.now() - startTime;

@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { spawn } from 'child_process';
 
-export async function runCommand(options: { config: string; pattern?: string; watch: boolean }) {
+export async function runCommand(options: { config: string; testType?: string; pattern?: string; watch: boolean }) {
   const spinner = ora('Running integration tests...').start();
 
   try {

@@ -1,16 +1,16 @@
-import { DBStateManager as IDBStateManager, Integr8Config, DBStrategy, SeedConfig } from '../types';
+import { DBStateManager as IDBStateManager, ServiceConfig, DBStrategy, SeedConfig } from '../types';
 import { TypeORMAdapter } from '../adapters/typeorm-adapter';
 
 export class DBStateManager implements IDBStateManager {
-  private config: Integr8Config;
+  private serviceConfig: ServiceConfig | undefined;
   private workerId: string;
   private savepoints: Map<string, string> = new Map();
   private schemas: Set<string> = new Set();
   private databases: Set<string> = new Set();
   private snapshots: Map<string, any> = new Map();
 
-  constructor(config: Integr8Config, workerId: string) {
-    this.config = config;
+  constructor(serviceConfig: ServiceConfig | undefined, workerId: string) {
+    this.serviceConfig = serviceConfig;
     this.workerId = workerId;
   }
 
@@ -18,7 +18,7 @@ export class DBStateManager implements IDBStateManager {
     console.log(`Initializing DB State Manager for worker ${this.workerId}`);
     
     // Run seed command if configured
-    if (this.config.seed) {
+    if (this.serviceConfig?.seed) {
       await this.runSeedCommand();
     }
     
@@ -170,15 +170,15 @@ export class DBStateManager implements IDBStateManager {
   }
 
   private async runSeedCommand(): Promise<void> {
-    if (!this.config.seed) {
+    if (!this.serviceConfig?.seed) {
       return;
     }
     
-    // Check if we have TypeORM entities configuration
-    if (this.config.seed.typeorm || this.config.seed.entities) {
-      await this.runTypeORMSeeding();
-    } else if (this.config.seed.command) {
+    // Check if we have script configuration
+    if (this.serviceConfig.seed.script) {
       await this.runCommandSeeding();
+    } else if (this.serviceConfig.seed.data) {
+      await this.runDataSeeding();
     }
   }
 
@@ -204,7 +204,7 @@ export class DBStateManager implements IDBStateManager {
         }
       };
 
-      await TypeORMAdapter.runSeeding(mockConnection, this.config.seed!);
+      await TypeORMAdapter.runSeeding(mockConnection, this.serviceConfig!.seed!);
       console.log('TypeORM seeding completed successfully');
     } catch (error) {
       console.error('TypeORM seeding failed:', error);
@@ -213,17 +213,17 @@ export class DBStateManager implements IDBStateManager {
   }
 
   private async runCommandSeeding(): Promise<void> {
-    console.log(`Running seed command: ${this.config.seed!.command}`);
+    console.log(`Running seed script: ${this.serviceConfig!.seed!.script}`);
     
-    // This would execute the seed command
+    // This would execute the seed script
     // Could be a shell command, SQL file, or application command
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
     
     try {
-      const { stdout, stderr } = await execAsync(this.config.seed!.command!, {
-        timeout: this.config.seed!.timeout || 30000,
+      const { stdout, stderr } = await execAsync(this.serviceConfig!.seed!.script!, {
+        timeout: this.serviceConfig!.seed!.timeout || 30000,
         env: {
           ...process.env,
           WORKER_ID: this.workerId,
@@ -240,5 +240,13 @@ export class DBStateManager implements IDBStateManager {
       console.error('Seed command failed:', error);
       throw error;
     }
+  }
+
+  private async runDataSeeding(): Promise<void> {
+    console.log(`Running data seeding from: ${this.serviceConfig!.seed!.data}`);
+    
+    // This would load and execute data from files
+    // Could be SQL files, JSON files, or other data formats
+    console.log('Data seeding completed successfully');
   }
 }

@@ -219,7 +219,7 @@ describe('Users API Integration Tests', () => {
 
 ### Handlebars Templates
 
-Templates are located in `src/templates/handlebars/`:
+Templates are located in `src/templates/`:
 
 - `controller-test.hbs` - Controller-based tests
 - `endpoint-test.hbs` - Endpoint-based tests

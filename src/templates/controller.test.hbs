@@ -5,14 +5,18 @@
 {{#each imports}}
 import { {{this}} } from '{{@key}}';
 {{/each}}
-
 {{/if}}
-import { defineScenario, setupEnvironment, teardownEnvironment } from '@soapjs/integr8';
 
 {{#if setup}}
 // Global setup
 beforeAll(async () => {
-  const config = require('../integr8.config.ts').default;
+  {{#if (endsWith configPath ".json")}}
+  const config = require('{{relativePath testFilePath configPath}}');
+  {{else}}
+  const configModule = require('{{relativePath testFilePath configPath}}');
+  const config = configModule.default || configModule;
+  {{/if}}
+  
   await setupEnvironment(config);
 });
 
@@ -28,7 +32,8 @@ describe('{{controllerName}} API Integration Tests', () => {
   {{#each endpoints}}
   describe('{{method}} {{path}}', () => {
     {{#each testScenarios}}
-    test('{{description}}', async ({ http }) => {
+    test('{{description}}', async () => {
+      const ctx = getEnvironmentContext();
       {{#if requestData}}
       const requestData = {{requestData}};
       {{/if}}
@@ -42,23 +47,23 @@ describe('{{controllerName}} API Integration Tests', () => {
       {{/if}}
       
       {{#if (eq ../method "GET")}}
-      const response = await http.{{lowercase ../method}}('{{../path}}'{{#if queryParams}}, { params: queryParams }{{/if}});
+      const response = await ctx.http.{{lowercase ../method}}('{{../path}}'{{#if queryParams}}, { params: queryParams }{{/if}});
       {{/if}}
       
       {{#if (eq ../method "POST")}}
-      const response = await http.{{lowercase ../method}}('{{../path}}', requestData);
+      const response = await ctx.http.{{lowercase ../method}}('{{../path}}', requestData);
       {{/if}}
       
       {{#if (eq ../method "PUT")}}
-      const response = await http.{{lowercase ../method}}('{{../path}}', requestData);
+      const response = await ctx.http.{{lowercase ../method}}('{{../path}}', requestData);
       {{/if}}
       
       {{#if (eq ../method "PATCH")}}
-      const response = await http.{{lowercase ../method}}('{{../path}}', requestData);
+      const response = await ctx.http.{{lowercase ../method}}('{{../path}}', requestData);
       {{/if}}
       
       {{#if (eq ../method "DELETE")}}
-      const response = await http.{{lowercase ../method}}('{{../path}}');
+      const response = await ctx.http.{{lowercase ../method}}('{{../path}}');
       {{/if}}
       
       // TODO: Add proper assertions

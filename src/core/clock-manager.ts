@@ -1,4 +1,4 @@
-import { ClockManager as IClockManager } from '../types';
+import { IClockManager } from '../types';
 
 export class ClockManager implements IClockManager {
   private isFake: boolean = false;

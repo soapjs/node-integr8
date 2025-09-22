@@ -1,0 +1,57 @@
+import { Integr8Config } from '@soapjs/integr8';
+
+const config: Integr8Config = {
+ services: [
+    {{#each services}}
+    {
+      name: '{{name}}',
+      type: '{{type}}'{{#if mode}},
+      mode: '{{mode}}'{{/if}}{{#if image}},
+      image: '{{image}}'{{/if}}{{#if ports}},
+      ports: [{{#each ports}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}{{#if command}},
+      command: '{{command}}'{{/if}}{{#if healthcheck}},
+      healthcheck: {
+        command: '{{healthcheck.command}}'
+      }{{/if}}{{#if containerName}},
+      containerName: '{{containerName}}'{{/if}}{{#if environment}},
+      environment: {
+        {{#each environment}}
+        {{@key}}: '{{this}}'{{#unless @last}},{{/unless}}
+        {{/each}}
+      }{{/if}}{{#if volumes}},
+      volumes: [
+        {{#each volumes}}
+        {
+          host: '{{host}}',
+          container: '{{container}}'{{#if mode}},
+          mode: '{{mode}}'{{/if}}
+        }{{#unless @last}},{{/unless}}
+        {{/each}}
+      ]{{/if}}{{#if dependsOn}},
+      dependsOn: [{{#each dependsOn}}'{{this}}'{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}{{#if workingDirectory}},
+      workingDirectory: '{{workingDirectory}}'{{/if}}{{#if dbStrategy}},
+      dbStrategy: '{{dbStrategy}}'{{/if}}{{#if parallelIsolation}},
+      parallelIsolation: '{{parallelIsolation}}'{{/if}}{{#if seed}},
+      seed: {
+{{#if seed.script}}        script: '{{seed.script}}'{{#if seed.data}},{{/if}}{{#if seed.timeout}},{{/if}}{{/if}}{{#if seed.data}}
+        data: '{{seed.data}}'{{#if seed.timeout}},{{/if}}{{/if}}{{#if seed.timeout}}
+        timeout: {{seed.timeout}}{{/if}}
+      }{{/if}}{{#if adapter}},
+      adapter: {
+        type: '{{adapter.type}}'{{#if adapter.config}},
+        config: {{{json adapter.config}}}{{/if}}
+      }{{/if}}
+    }{{#unless @last}},{{/unless}}
+    {{/each}}
+  ],
+  testType: '{{testType}}',
+  testDirectory: '{{testDirectory}}',
+  testFramework: '{{testFramework}}'{{#if testMode}},
+  testMode: {
+    {{#if testMode.controlPort}}controlPort: {{testMode.controlPort}}{{#if testMode.overrideEndpoint}},{{/if}}{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.overrideEndpoint}}
+    overrideEndpoint: '{{testMode.overrideEndpoint}}'{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.enableFakeTimers}}
+    enableFakeTimers: {{testMode.enableFakeTimers}}{{/if}}
+  }{{/if}}
+};
+
+export default config;

@@ -1,25 +1,8 @@
 import Handlebars from 'handlebars';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { RouteDiscoveryService } from '../core/route-discovery-service';
-import { RoutesConfig } from '../types';
-
-export interface RouteInfo {
-  method: string;
-  path: string;
-  controller?: string;
-  handler?: string;
-  group?: string;
-}
-
-export interface TestScenario {
-  description: string;
-  expectedStatus: number;
-  requestData?: any;
-  queryParams?: any;
-  pathParams?: any;
-  expectedResponse?: any;
-}
+import { RouteDiscoveryService } from './route-discovery-service';
+import { RouteInfo, RoutesConfig, TestScenario } from '../types';
 
 export interface TestTemplate {
   fileName: string;
@@ -34,16 +17,18 @@ export interface TestTemplateOptions {
   includeSetup: boolean;
   includeTeardown: boolean;
   customImports?: string[];
-  templateType: 'controller' | 'endpoint';
+  templateType: 'controller' | 'endpoint' | 'sample';
   generateScenarios?: boolean;
   defaultScenarios?: TestScenario[];
   routesConfig?: RoutesConfig;
+  configPath?: string;
 }
 
 export class TestTemplateGenerator {
   private options: TestTemplateOptions;
   private controllerTemplate!: HandlebarsTemplateDelegate;
   private endpointTemplate!: HandlebarsTemplateDelegate;
+  private sampleTemplate!: HandlebarsTemplateDelegate;
 
   constructor(options: TestTemplateOptions) {
     this.options = options;
@@ -61,30 +46,72 @@ export class TestTemplateGenerator {
     Handlebars.registerHelper('eq', (a: string, b: string) => {
       return a === b;
     });
+
+    // Register helper for endsWith
+    Handlebars.registerHelper('endsWith', (str: string, suffix: string) => {
+      return str.endsWith(suffix);
+    });
+
+    // Register helper for calculating relative path
+    Handlebars.registerHelper('relativePath', (fromPath: string, toPath: string) => {
+      const path = require('path');
+      const relative = path.relative(path.dirname(fromPath), toPath);
+      return relative.replace(/\\/g, '/'); // Normalize for cross-platform
+    });
   }
 
   private loadTemplates(): void {
-    const templatesDir = join(__dirname, 'handlebars');
+    const templatesDir = join(__dirname, '../templates');
     
     // Load controller template
-    const controllerTemplatePath = join(templatesDir, 'controller-test.hbs');
+    const controllerTemplatePath = join(templatesDir, 'controller.test.hbs');
     const controllerTemplateSource = readFileSync(controllerTemplatePath, 'utf8');
     this.controllerTemplate = Handlebars.compile(controllerTemplateSource);
 
     // Load endpoint template
-    const endpointTemplatePath = join(templatesDir, 'endpoint-test.hbs');
+    const endpointTemplatePath = join(templatesDir, 'endpoint.test.hbs');
     const endpointTemplateSource = readFileSync(endpointTemplatePath, 'utf8');
     this.endpointTemplate = Handlebars.compile(endpointTemplateSource);
+
+    // Load sample template
+    const sampleTemplatePath = join(templatesDir, 'sample.test.hbs');
+    const sampleTemplateSource = readFileSync(sampleTemplatePath, 'utf8');
+    this.sampleTemplate = Handlebars.compile(sampleTemplateSource);
   }
 
   async generateAllTemplates(routes?: RouteInfo[]): Promise<TestTemplate[]> {
+    if (this.options.templateType === 'sample') {
+      return [this.generateSampleTemplate()];
+    }
+    
     const routesToUse = routes || await this.discoverRoutes();
     
     if (this.options.templateType === 'controller') {
       return this.generateControllerTemplates(routesToUse);
-    } else {
+    } else if (this.options.templateType === 'endpoint') {
       return this.generateEndpointTemplates(routesToUse);
+    } else {
+      throw new Error(`Unknown template type: ${this.options.templateType}`);
     }
+  }
+
+  // Dedicated methods for each template type
+  generateSampleTest(): TestTemplate {
+    return this.generateSampleTemplate();
+  }
+
+  async generateControllerTests(routes?: RouteInfo[]): Promise<TestTemplate[]> {
+    const routesToUse = routes || await this.discoverRoutes();
+    return this.generateControllerTemplates(routesToUse);
+  }
+
+  async generateEndpointTests(routes?: RouteInfo[]): Promise<TestTemplate[]> {
+    const routesToUse = routes || await this.discoverRoutes();
+    return this.generateEndpointTemplates(routesToUse);
+  }
+
+  generateSingleEndpointTemplate(route: RouteInfo): TestTemplate {
+    return this.generateEndpointTemplate(route);
   }
 
   async discoverRoutes(): Promise<RouteInfo[]> {
@@ -94,6 +121,28 @@ export class TestTemplateGenerator {
 
     const discoveryService = new RouteDiscoveryService(this.options.routesConfig);
     return await discoveryService.discoverRoutes();
+  }
+
+  // Static factory methods for easier usage
+  static createSampleGenerator(options: Omit<TestTemplateOptions, 'templateType' | 'routesConfig'>): TestTemplateGenerator {
+    return new TestTemplateGenerator({
+      ...options,
+      templateType: 'sample'
+    });
+  }
+
+  static createControllerGenerator(options: Omit<TestTemplateOptions, 'templateType'>): TestTemplateGenerator {
+    return new TestTemplateGenerator({
+      ...options,
+      templateType: 'controller'
+    });
+  }
+
+  static createEndpointGenerator(options: Omit<TestTemplateOptions, 'templateType'>): TestTemplateGenerator {
+    return new TestTemplateGenerator({
+      ...options,
+      templateType: 'endpoint'
+    });
   }
 
   private generateControllerTemplates(routes: RouteInfo[]): TestTemplate[] {
@@ -122,6 +171,7 @@ export class TestTemplateGenerator {
 
   private generateControllerTemplate(controller: string, routes: RouteInfo[]): TestTemplate {
     const fileName = this.generateControllerFileName(controller);
+    const testFilePath = join(this.options.outputDir, fileName);
     
     // Enhance routes with test scenarios
     const enhancedRoutes = routes.map(route => ({
@@ -134,7 +184,9 @@ export class TestTemplateGenerator {
       endpoints: enhancedRoutes,
       imports: this.generateImports(),
       setup: this.options.includeSetup,
-      teardown: this.options.includeTeardown
+      teardown: this.options.includeTeardown,
+      configPath: this.options.configPath || '../integr8.config.js',
+      testFilePath: testFilePath
     };
 
     const content = this.controllerTemplate(templateData);
@@ -149,12 +201,15 @@ export class TestTemplateGenerator {
 
   private generateEndpointTemplate(route: RouteInfo): TestTemplate {
     const fileName = this.generateEndpointFileName(route);
+    const testFilePath = join(this.options.outputDir, fileName);
     
     const templateData = {
       endpoint: route,
       imports: this.generateImports(),
       setup: this.options.includeSetup,
-      teardown: this.options.includeTeardown
+      teardown: this.options.includeTeardown,
+      configPath: this.options.configPath || '../integr8.config.js',
+      testFilePath: testFilePath
     };
 
     const content = this.endpointTemplate(templateData);
@@ -164,6 +219,28 @@ export class TestTemplateGenerator {
       content,
       controller: route.controller || 'api',
       routes: [route]
+    };
+  }
+
+  private generateSampleTemplate(): TestTemplate {
+    const fileName = 'sample.integration.test.ts';
+    const testFilePath = join(this.options.outputDir, fileName);
+    
+    const templateData = {
+      imports: this.generateImports(),
+      setup: this.options.includeSetup,
+      teardown: this.options.includeTeardown,
+      configPath: this.options.configPath || '../integr8.config.js',
+      testFilePath: testFilePath
+    };
+
+    const content = this.sampleTemplate(templateData);
+
+    return {
+      fileName,
+      content,
+      controller: 'sample',
+      routes: []
     };
   }
 
@@ -311,10 +388,11 @@ export class TestTemplateGenerator {
   private generateImports(): Record<string, string[]> {
     const imports: Record<string, string[]> = {};
     
+    // Always include basic integr8 imports
+    imports['@soapjs/integr8'] = ['setupEnvironment', 'teardownEnvironment', 'getEnvironmentContext'];
+    
+    // Add custom imports if provided
     if (this.options.customImports) {
-      imports['@soapjs/integr8'] = ['defineScenario', 'setupEnvironment', 'teardownEnvironment'];
-      
-      // Add custom imports
       this.options.customImports.forEach(importStr => {
         const parts = importStr.split(' ');
         const module = parts[0];

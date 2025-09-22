@@ -224,6 +224,7 @@ export class DBStateManager implements IDBStateManager {
     try {
       const { stdout, stderr } = await execAsync(this.serviceConfig!.seed!.script!, {
         timeout: this.serviceConfig!.seed!.timeout || 30000,
+        cwd: this.serviceConfig!.workingDirectory || process.cwd(),
         env: {
           ...process.env,
           WORKER_ID: this.workerId,

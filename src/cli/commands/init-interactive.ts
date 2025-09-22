@@ -368,7 +368,8 @@ export class InteractiveInit {
       services,
       testType: this.answers.testType as 'api' | 'e2e' | 'unit-db' | 'custom',
       testDirectory: join(this.answers.testDirectory, this.answers.testType),
-      testFramework: 'jest'
+      testFramework: 'jest',
+      urlPrefix: this.answers.urlPrefix
     };
   }
 
@@ -400,7 +401,13 @@ export class InteractiveInit {
     const templateSource = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(templateSource);
     
-    return template({ config, ...config });
+    // For JSON template, pass the full config object
+    if (type === 'json') {
+      return template({ config });
+    }
+    
+    // For JS/TS templates, spread the config properties
+    return template({ ...config });
   }
 
   private async createTestDirectory(): Promise<void> {

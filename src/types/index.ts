@@ -5,6 +5,7 @@ export interface Integr8Config {
   testFramework?: 'jest' | 'vitest';
   testScenarios?: TestScenario[];
   testMode?: TestModeConfig;
+  urlPrefix?: string;
 }
 
 export interface ServiceConfig {

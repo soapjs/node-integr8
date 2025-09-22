@@ -46,7 +46,8 @@ const config: Integr8Config = {
   ],
   testType: '{{testType}}',
   testDirectory: '{{testDirectory}}',
-  testFramework: '{{testFramework}}'{{#if testMode}},
+  testFramework: '{{testFramework}}'{{#if urlPrefix}},
+  urlPrefix: '{{urlPrefix}}'{{/if}}{{#if testMode}},
   testMode: {
     {{#if testMode.controlPort}}controlPort: {{testMode.controlPort}}{{#if testMode.overrideEndpoint}},{{/if}}{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.overrideEndpoint}}
     overrideEndpoint: '{{testMode.overrideEndpoint}}'{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.enableFakeTimers}}

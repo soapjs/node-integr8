@@ -28,7 +28,45 @@ afterAll(async () => {
 });
 
 {{/if}}
-describe('{{endpoint.method}} {{endpoint.path}} Integration Tests', () => {
+describe('{{endpoint.method}} {{endpoint.path}}', () => {
+  {{#if endpoint.testScenarios}}
+  {{#each endpoint.testScenarios}}
+  test('{{description}}', async () => {
+    const ctx = getEnvironmentContext();
+    
+    {{#if requestData}}
+    const requestData = {{json requestData}};
+    {{/if}}
+    {{#if queryParams}}
+    const queryParams = {{json queryParams}};
+    {{/if}}
+    {{#if pathParams}}
+    const pathParams = {{json pathParams}};
+    {{/if}}
+    
+    {{#if (eq ../endpoint.method "GET")}}
+    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}'{{#if queryParams}}, { params: queryParams }{{/if}});
+    {{/if}}
+    {{#if (eq ../endpoint.method "POST")}}
+    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
+    {{/if}}
+    {{#if (eq ../endpoint.method "PUT")}}
+    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
+    {{/if}}
+    {{#if (eq ../endpoint.method "PATCH")}}
+    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
+    {{/if}}
+    {{#if (eq ../endpoint.method "DELETE")}}
+    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}');
+    {{/if}}
+    
+    expect(response.status).toBe({{expectedStatus}});
+    {{#if expectedResponse}}
+    expect(response.data).toMatchObject({{json expectedResponse}});
+    {{/if}}
+  });
+  {{/each}}
+  {{else}}
   {{#if (eq endpoint.method "GET")}}
   test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
     const ctx = getEnvironmentContext();
@@ -43,7 +81,7 @@ describe('{{endpoint.method}} {{endpoint.path}} Integration Tests', () => {
     expect(true).toBe(false); // This test needs implementation
     {{/if}}
   });
-
+  {{/if}}
   {{/if}}
   {{#if (eq endpoint.method "POST")}}
   test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
@@ -58,7 +96,6 @@ describe('{{endpoint.method}} {{endpoint.path}} Integration Tests', () => {
     expect(response.status).toBe(201);
     expect(true).toBe(false); // This test needs implementation
   });
-
   {{/if}}
   {{#if (eq endpoint.method "PUT")}}
   test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
@@ -73,7 +110,6 @@ describe('{{endpoint.method}} {{endpoint.path}} Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(true).toBe(false); // This test needs implementation
   });
-
   {{/if}}
   {{#if (eq endpoint.method "DELETE")}}
   test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
@@ -98,6 +134,5 @@ describe('{{endpoint.method}} {{endpoint.path}} Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(true).toBe(false); // This test needs implementation
   });
-
   {{/if}}
 });

@@ -52,6 +52,38 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
   constructor(config: Integr8Config, workerId?: string) {
     this.config = config;
     this.workerId = workerId || `worker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Setup cleanup handlers
+    this.setupCleanupHandlers();
+  }
+
+  private setupCleanupHandlers(): void {
+    // Handle process termination
+    const cleanup = async () => {
+      console.log('\n🛑 Received termination signal, cleaning up...');
+      try {
+        await this.stop();
+        process.exit(0);
+      } catch (error) {
+        console.error('❌ Error during cleanup:', error);
+        process.exit(1);
+      }
+    };
+
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+    process.on('exit', cleanup);
+    
+    // Handle uncaught exceptions
+    process.on('uncaughtException', async (error) => {
+      console.error('❌ Uncaught Exception:', error);
+      await cleanup();
+    });
+    
+    process.on('unhandledRejection', async (reason) => {
+      console.error('❌ Unhandled Rejection:', reason);
+      await cleanup();
+    });
   }
 
   async start(): Promise<void> {
@@ -70,6 +102,24 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     this.context = await this.createContext();
     
     console.log(`✅ Environment ready for worker ${this.workerId}`);
+  }
+
+  async startFast(): Promise<void> {
+    console.log(`🚀 Starting environment for worker ${this.workerId} (fast mode)`);
+    
+    // Create network
+    this.network = await new Network().start();
+    
+    // Start all services
+    await this.startServices();
+    
+    // Skip health checks in fast mode
+    console.log('⚡ Fast mode: skipping health checks');
+    
+    // Initialize context
+    this.context = await this.createContext();
+    
+    console.log(`✅ Environment started for worker ${this.workerId} (health checks skipped)`);
   }
 
   async stop(): Promise<void> {
@@ -91,20 +141,41 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
       console.log(`Stopping local process: ${name} (PID: ${process.pid})`);
       
       try {
+        // Check if process is still running
+        if (process.killed || process.exitCode !== null) {
+          console.log(`Process ${name} already stopped`);
+          continue;
+        }
+        
+        // Try graceful shutdown first
         process.kill('SIGTERM');
         
-        // Wait a bit for graceful shutdown
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for graceful shutdown
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        while (attempts < maxAttempts && !process.killed && process.exitCode === null) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          attempts++;
+        }
         
         // Force kill if still running
-        if (!process.killed) {
+        if (!process.killed && process.exitCode === null) {
           console.log(`Force killing local process: ${name}`);
           process.kill('SIGKILL');
+          
+          // Wait a bit more
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
+        
+        console.log(`✅ Process ${name} stopped`);
       } catch (error) {
-        console.log(`⚠️  Process ${name} already stopped or not found`);
+        console.log(`⚠️  Process ${name} already stopped or not found:`, error instanceof Error ? error.message : String(error));
       }
     }
+    
+    // Clear the processes map
+    this.localProcesses.clear();
     
     // Stop services (for non-compose setups)
     for (const [name, container] of this.containers) {
@@ -238,7 +309,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
           .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections'));
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
         break;
         
@@ -255,7 +328,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
           .withWaitStrategy(Wait.forLogMessage('ready for connections'));
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
         break;
         
@@ -271,7 +346,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
           .withWaitStrategy(Wait.forLogMessage('Waiting for connections'));
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
         break;
         
@@ -281,7 +358,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
           .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'));
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
         break;
         
@@ -291,7 +370,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
           .withWaitStrategy(Wait.forHttp('/', 8025));
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
         break;
         
@@ -320,7 +401,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         }
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
         break;
         
@@ -331,7 +414,9 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         container = new GenericContainer(serviceConfig.image);
         
         if (serviceConfig.containerName) {
-          container = container.withName(serviceConfig.containerName);
+          // Add worker ID to container name to avoid conflicts
+          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          container = container.withName(uniqueContainerName);
         }
     }
     
@@ -440,7 +525,10 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     // Wait a bit for the process to start
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    console.log(`✅ Local service ${serviceConfig.name} started (PID: ${childProcess.pid})`);
+    // Only log if the process is still running (avoid logging after tests are done)
+    if (childProcess.pid && !childProcess.killed) {
+      console.log(`✅ Local service ${serviceConfig.name} started (PID: ${childProcess.pid})`);
+    }
   }
 
   // Legacy method - now handled by startServices()

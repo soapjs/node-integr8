@@ -6,6 +6,13 @@ let orchestrator: EnvironmentOrchestrator | null = null;
 let config: Integr8Config | null = null;
 
 export async function setupEnvironment(integr8Config: Integr8Config): Promise<void> {
+  // Check if environment is already running
+  if (process.env.INTEGR8_ENVIRONMENT_RUNNING === 'true') {
+    config = integr8Config;
+    // Don't start a new orchestrator, just set the config
+    return;
+  }
+  
   config = integr8Config;
   orchestrator = new EnvironmentOrchestrator(config);
   await orchestrator.start();
@@ -80,8 +87,194 @@ export function createVitestSetup(integr8Config: Integr8Config) {
 
 // Context provider for Jest/Vitest tests
 export function getEnvironmentContext(): IEnvironmentContext {
-  if (!orchestrator) {
+  if (!orchestrator && !config) {
     throw new Error('Environment not set up. Call setupEnvironment() first.');
   }
-  return orchestrator.getContext();
+  
+  // If using existing environment, create a mock context
+  if (!orchestrator && config) {
+    // Create a mock context that connects to the existing environment
+    // We need to create a minimal context without starting a new orchestrator
+    const mockContext: IEnvironmentContext = {
+      http: {
+        request: async (options: any) => {
+          const startTime = Date.now();
+          const response = await fetch(`http://localhost:3000${options.url}`, {
+            method: options.method || 'GET',
+            headers: options.headers || {},
+            body: options.body
+          });
+          return {
+            status: response.status,
+            data: await response.json(),
+            headers: Object.fromEntries(response.headers.entries()),
+            duration: Date.now() - startTime
+          };
+        },
+        get: async (url: string, options?: any) => {
+          const startTime = Date.now();
+          const response = await fetch(`http://localhost:3000${url}`);
+          
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          let data;
+          if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+          } else {
+            data = await response.text();
+          }
+          
+          return {
+            status: response.status,
+            data,
+            headers: Object.fromEntries(response.headers.entries()),
+            duration: Date.now() - startTime
+          };
+        },
+        post: async (url: string, data?: any, options?: any) => {
+          const startTime = Date.now();
+          const response = await fetch(`http://localhost:3000${url}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          let responseData;
+          if (contentType && contentType.includes('application/json')) {
+            responseData = await response.json();
+          } else {
+            responseData = await response.text();
+          }
+          
+          return {
+            status: response.status,
+            data: responseData,
+            headers: Object.fromEntries(response.headers.entries()),
+            duration: Date.now() - startTime
+          };
+        },
+        put: async (url: string, data?: any, options?: any) => {
+          const startTime = Date.now();
+          const response = await fetch(`http://localhost:3000${url}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          let responseData;
+          if (contentType && contentType.includes('application/json')) {
+            responseData = await response.json();
+          } else {
+            responseData = await response.text();
+          }
+          
+          return {
+            status: response.status,
+            data: responseData,
+            headers: Object.fromEntries(response.headers.entries()),
+            duration: Date.now() - startTime
+          };
+        },
+        delete: async (url: string, options?: any) => {
+          const startTime = Date.now();
+          const response = await fetch(`http://localhost:3000${url}`, {
+            method: 'DELETE'
+          });
+          
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          let data;
+          if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+          } else {
+            data = await response.text();
+          }
+          
+          return {
+            status: response.status,
+            data,
+            headers: Object.fromEntries(response.headers.entries()),
+            duration: Date.now() - startTime
+          };
+        },
+        patch: async (url: string, data?: any, options?: any) => {
+          const startTime = Date.now();
+          const response = await fetch(`http://localhost:3000${url}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          let responseData;
+          if (contentType && contentType.includes('application/json')) {
+            responseData = await response.json();
+          } else {
+            responseData = await response.text();
+          }
+          
+          return {
+            status: response.status,
+            data: responseData,
+            headers: Object.fromEntries(response.headers.entries()),
+            duration: Date.now() - startTime
+          };
+        }
+      },
+      db: {
+        snapshot: async (name: string) => {},
+        restore: async (name: string) => {},
+        query: async (sql: string) => {},
+        transaction: async (fn: any) => fn(),
+        reset: async () => {},
+        getConnectionString: () => 'mock-connection-string'
+      },
+      ctx: {
+        scenarioId: 'mock-scenario',
+        workerId: 'mock-worker',
+        override: {
+          module: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {}
+          }),
+          service: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {}
+          }),
+          repository: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {}
+          }),
+          dataSource: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {}
+          }),
+          provider: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {}
+          }),
+          clear: async () => {}
+        },
+        snapshot: {
+          create: async (name: string) => {},
+          restore: async (name: string) => {},
+          list: async () => [],
+          delete: async (name: string) => {}
+        }
+      }
+    };
+    return mockContext;
+  }
+  
+  return orchestrator!.getContext();
 }

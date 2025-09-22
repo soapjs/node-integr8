@@ -9,12 +9,15 @@ Framework-agnostic integration testing with Testcontainers. Test your APIs again
 - **Framework Agnostic**: Works with Express, NestJS, Fastify, and more
 - **Override System**: Mock external services while keeping real database
 - **Parallel Testing**: Isolated environments for each test worker
-- **CLI Tools**: Easy setup and management
+- **CLI Tools**: Easy setup and management with clean, colored output
 - **Multiple App Types**: Docker Compose, Local, or Container execution
 - **Test Template Generation**: Auto-generate tests from route discovery commands
 - **AST-based Test Updates**: Safely add endpoints to existing test files
 - **Route Discovery**: Framework-agnostic endpoint discovery system
 - **Multiple Test Scenarios**: Generate success, error, and validation tests
+- **Smart Environment Detection**: Automatically detect and reuse running environments
+- **Fast Mode**: Skip health checks for faster startup with `--fast` flag
+- **Clean Test Output**: Professional Jest-style output with full colors and formatting
 
 ## What This Solves
 
@@ -225,11 +228,20 @@ describe('Users API Integration Tests', () => {
 
 **Development workflow:**
 ```bash
-# Start environment
+# Start environment (with health checks)
 npx integr8 up
 
-# Run tests
+# Fast start (skip health checks)
+npx integr8 up --fast
+
+# Run tests (detects existing environment)
 npx integr8 run
+
+# Run specific tests
+npx integr8 run --pattern "users.*"
+
+# Watch mode
+npx integr8 run --watch
 
 # Stop environment
 npx integr8 down
@@ -239,6 +251,9 @@ npx integr8 down
 ```bash
 # Single command (up + run + down)
 npx integr8 ci
+
+# With fast mode for CI
+npx integr8 ci --fast
 ```
 
 ## 📖 Configuration
@@ -531,10 +546,23 @@ npx integr8 init --test-dir ./e2e-tests --format json --app-type local
 Start the test environment.
 
 ```bash
+# Standard startup with health checks
 npx integr8 up
+
+# Fast startup (skip health checks)
+npx integr8 up --fast
+
+# With custom config
 npx integr8 up --config custom.config.ts
+
+# Detached mode
 npx integr8 up --detach
+
+# Custom compose file
 npx integr8 up --compose-file docker-compose.custom.yml
+
+# Override services to local mode
+npx integr8 up --local postgres redis
 ```
 
 ### `integr8 down`
@@ -545,13 +573,30 @@ npx integr8 down
 ```
 
 ### `integr8 run`
-Run integration tests.
+Run integration tests. Automatically detects if environment is already running.
 
 ```bash
+# Run all tests (detects existing environment)
 npx integr8 run
+
+# Run specific test pattern
 npx integr8 run --pattern "*.integration.test.ts"
+
+# Watch mode for development
 npx integr8 run --watch
+
+# Run tests matching specific name
+npx integr8 run --pattern "users.*"
+
+# With custom config
+npx integr8 run --config custom.config.ts
 ```
+
+**Smart Environment Detection:**
+- ✅ Automatically detects if environment is running
+- ✅ Uses existing environment instead of starting new one
+- ✅ Clean, colored Jest output
+- ✅ No duplicate container conflicts
 
 ### `integr8 ci`
 Run integration tests in CI mode (up + run + down).
@@ -659,6 +704,52 @@ pipeline {
 }
 ```
 
+## 🚀 New Features
+
+### Smart Environment Detection
+Integr8 now automatically detects if your test environment is already running and reuses it instead of starting a new one.
+
+```bash
+# Terminal 1: Start environment
+npx integr8 up
+
+# Terminal 2: Run tests (detects existing environment)
+npx integr8 run  # ✅ Uses existing environment
+```
+
+**Benefits:**
+- ✅ No duplicate containers
+- ✅ Faster test execution
+- ✅ Clean, colored output
+- ✅ No environment conflicts
+
+### Fast Mode
+Skip health checks for faster startup during development.
+
+```bash
+# Standard mode (with health checks)
+npx integr8 up
+
+# Fast mode (skip health checks)
+npx integr8 up --fast
+```
+
+**When to use:**
+- 🚀 **Development**: When you know your app starts quickly
+- ⚡ **CI/CD**: For faster pipeline execution
+- 🔧 **Debugging**: When you need quick iterations
+
+### Clean Test Output
+Professional Jest-style output with full colors and formatting.
+
+```bash
+npx integr8 run
+# ✅ Clean, colored output
+# ✅ No spinner interference
+# ✅ Standard Jest formatting
+# ✅ Proper error display
+```
+
 ## Best Practices
 
 ### 1. Use Appropriate DB Strategy
@@ -753,10 +844,13 @@ npx integr8 generate --command "node scripts/list-routes.js" --format json
 
 **Development (flexible):**
 ```bash
-# Start environment once
+# Start environment once (with health checks)
 npx integr8 up
 
-# Run tests multiple times
+# Or fast start for development
+npx integr8 up --fast
+
+# Run tests multiple times (detects existing environment)
 npx integr8 run
 npx integr8 run --watch
 npx integr8 run --pattern "users.*"
@@ -770,13 +864,16 @@ npx integr8 down
 # Single command for pipeline
 npx integr8 ci
 
+# With fast mode for faster CI
+npx integr8 ci --fast
+
 # With specific options
 npx integr8 ci --pattern "*.integration.test.ts" --timeout 600000 --verbose
 ```
 
 **Key differences:**
-- **Development**: Manual control, multiple test runs, debugging
-- **CI/CD**: Atomic execution, always cleanup, single command
+- **Development**: Manual control, multiple test runs, debugging, smart environment detection
+- **CI/CD**: Atomic execution, always cleanup, single command, fast mode support
 
 ### 8. Docker Compose Workflow
 
@@ -871,7 +968,7 @@ app.register(FastifyAdapter.createTestPlugin());
 
 ## Roadmap
 
-### v0.1 (Current)
+### v0.1 (Current) ✅
 - PostgreSQL + Express
 - NestJS + TypeORM support
 - Savepoint & Schema strategies
@@ -880,6 +977,9 @@ app.register(FastifyAdapter.createTestPlugin());
 - **Test template generation**
 - **AST-based endpoint addition**
 - **Route discovery system**
+- **Smart environment detection** ✅
+- **Fast mode for faster startup** ✅
+- **Clean, colored test output** ✅
 
 ### v0.2 (Next)
 - MongoDB support
@@ -888,6 +988,8 @@ app.register(FastifyAdapter.createTestPlugin());
 - Runtime override endpoint
 - **API coverage analysis**
 - **Test organization tools**
+- **Enhanced health check strategies**
+- **Parallel test execution optimization**
 
 ### v0.3 (Future)
 - Kafka/NATS helpers
@@ -896,6 +998,64 @@ app.register(FastifyAdapter.createTestPlugin());
 - CI artifacts
 - **Interactive test generation**
 - **Test performance optimization**
+- **Advanced environment management**
+- **Real-time test monitoring**
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+**Environment not detected:**
+```bash
+# Make sure environment is running
+npx integr8 up
+
+# Check if health endpoint responds
+curl http://localhost:3000/health
+```
+
+**Container name conflicts:**
+```bash
+# Clean up existing containers
+docker container prune -f
+
+# Or use unique container names in config
+containerName: 'my-app-postgres-unique'
+```
+
+**Tests not finding environment:**
+```bash
+# Ensure tests use setupEnvironment()
+import { setupEnvironment } from '@soapjs/integr8';
+
+beforeAll(async () => {
+  await setupEnvironment(config);
+});
+```
+
+**Slow startup:**
+```bash
+# Use fast mode for development
+npx integr8 up --fast
+
+# Or skip health checks in config
+app: {
+  healthcheck: null  // Disable health checks
+}
+```
+
+**JSON parsing errors:**
+- Integr8 automatically detects Content-Type
+- Handles both JSON and text responses
+- No manual parsing needed
+
+### Performance Tips
+
+1. **Use fast mode** for development: `npx integr8 up --fast`
+2. **Reuse environment** with `npx integr8 run` (detects existing)
+3. **Choose right DB strategy**: `savepoint` for PostgreSQL, `database` for MongoDB
+4. **Use snapshots** for complex test scenarios
+5. **Override external services** instead of mocking everything
 
 ## Contributing
 

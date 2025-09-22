@@ -3,7 +3,7 @@ import ora from 'ora';
 import { existsSync } from 'fs';
 import { EnvironmentOrchestrator } from '../../core/environment-orchestrator';
 
-export async function upCommand(options: { config: string; testType?: string; detach: boolean; composeFile?: string; local?: string[] }) {
+export async function upCommand(options: { config: string; testType?: string; detach: boolean; composeFile?: string; local?: string[]; fast?: boolean }) {
   const spinner = ora('Starting test environment...').start();
 
   try {
@@ -50,7 +50,12 @@ export async function upCommand(options: { config: string; testType?: string; de
     const orchestrator = new EnvironmentOrchestrator(config);
     
     // Start environment
-    await orchestrator.start();
+    if (options.fast) {
+      console.log(chalk.yellow('🚀 Fast mode: skipping health checks'));
+      await orchestrator.startFast();
+    } else {
+      await orchestrator.start();
+    }
     
     spinner.succeed('Test environment started successfully!');
     

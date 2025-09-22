@@ -58,6 +58,11 @@ export class TestTemplateGenerator {
       const relative = path.relative(path.dirname(fromPath), toPath);
       return relative.replace(/\\/g, '/'); // Normalize for cross-platform
     });
+
+    // Register helper for JSON serialization
+    Handlebars.registerHelper('json', (obj: any) => {
+      return new Handlebars.SafeString(JSON.stringify(obj, null, 2));
+    });
   }
 
   private loadTemplates(): void {

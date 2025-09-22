@@ -10,6 +10,7 @@ import { downCommand } from './commands/down';
 import { runCommand } from './commands/run';
 import { addEndpointCommand } from './commands/add-endpoint';
 import { ciCommand } from './commands/ci';
+import { ScanCommand } from './commands/scan';
 
 // Helper function to find config file
 function findConfigFile(testType?: string): string {
@@ -62,6 +63,7 @@ program
   .option('-d, --detach', 'Run in detached mode')
   .option('--compose-file <path>', 'Custom Docker Compose file (overrides config)')
   .option('--local <services...>', 'Override specified services to local mode')
+  .option('--fast', 'Skip health checks for faster startup')
   .action(upCommand);
 
 program
@@ -104,5 +106,19 @@ program
   .option('--no-backup', 'Skip backup creation')
   .option('--dry-run', 'Show what would be added without making changes', false)
   .action(addEndpointCommand);
+
+program
+  .command('scan')
+  .description('Scan service endpoints and generate tests')
+  .option('--command <cmd>', 'Command to run for endpoint discovery (e.g., "npm run list-routes")')
+  .option('--json <path>', 'Path to JSON file with endpoints')
+  .option('--type <type>', 'Scan type: all, only-new', 'all')
+  .option('--output <dir>', 'Output directory for tests')
+  .option('--config <path>', 'Path to integr8 config file')
+  .option('--format <format>', 'Output format: json, yaml', 'json')
+  .action(async (options) => {
+    const scanCommand = new ScanCommand();
+    await scanCommand.execute(options);
+  });
 
 program.parse();

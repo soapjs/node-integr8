@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import ora from 'ora';
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import Handlebars from 'handlebars';
@@ -21,7 +20,7 @@ export async function initCommand(options: {
   }
 
   // Legacy non-interactive flow
-  const spinner = ora('Initializing integr8...').start();
+  console.log(chalk.blue('🚀 Initializing integr8...'));
 
   try {
     // Set defaults
@@ -33,7 +32,7 @@ export async function initCommand(options: {
 
     // Check if config already exists
     if (existsSync(configFile)) {
-      spinner.fail(`${configFile} already exists`);
+      console.error(chalk.red(`❌ ${configFile} already exists`));
       return;
     }
 
@@ -74,7 +73,7 @@ export async function initCommand(options: {
       writeFileSync('.gitignore', gitignoreContent);
     }
 
-    spinner.succeed('integr8 initialized successfully!');
+    console.log(chalk.green('✅ integr8 initialized successfully!'));
     
     console.log(chalk.green('\n✅ Setup complete!'));
     console.log(chalk.blue('\nNext steps:'));
@@ -84,7 +83,7 @@ export async function initCommand(options: {
     console.log('4. Run: integr8 run');
 
   } catch (error) {
-    spinner.fail('Failed to initialize integr8');
+    console.error(chalk.red('❌ Failed to initialize integr8'));
     console.error(error);
     process.exit(1);
   }
@@ -98,6 +97,26 @@ function getConfigTemplate(template: string, format: string, testDir: string, ap
     return JSON.stringify(context, null, 2);
   });
   
+  // Register helper to check if an object has content
+  Handlebars.registerHelper('hasContent', function(this: any, context: any, options: any) {
+    if (!context || typeof context !== 'object') {
+      return options.inverse(this);
+    }
+    
+    // Check if object has any non-empty properties
+    const hasContent = Object.keys(context).some(key => {
+      const value = context[key];
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string' && value.trim() === '') return false;
+      if (Array.isArray(value) && value.length === 0) return false;
+      if (typeof value === 'object' && Object.keys(value).length === 0) return false;
+      return true;
+    });
+    
+    return hasContent ? options.fn(this) : options.inverse(this);
+  });
+
+  
   // Load template
   const templatePath = join(__dirname, '../../templates', `config.${format}.hbs`);
   const templateSource = readFileSync(templatePath, 'utf8');
@@ -105,18 +124,27 @@ function getConfigTemplate(template: string, format: string, testDir: string, ap
   
   // Prepare config data
   const config = {
-    services: [
-      {
-        name: 'postgres',
-        type: 'postgres',
-        image: 'postgres:15',
-        ports: [5432],
-        environment: {
-          POSTGRES_DB: 'testdb',
-          POSTGRES_USER: 'testuser',
-          POSTGRES_PASSWORD: 'testpass'
-        }
-      },
+        services: [
+          {
+            name: 'postgres',
+            type: 'postgres',
+            image: 'postgres:15',
+            ports: [5432],
+            environment: {
+              POSTGRES_DB: 'testdb',
+              POSTGRES_USER: 'testuser',
+              POSTGRES_PASSWORD: 'testpass'
+            },
+            envMapping: {
+              host: 'DB_HOST',
+              port: 'DB_PORT',
+              username: 'DB_USERNAME',
+              password: 'DB_PASSWORD',
+              database: 'DB_NAME',
+              url: 'DATABASE_URL'
+            },
+            logging: 'debug'
+          },
       getAppServiceConfig(appType, adapterName)
     ],
     testType: testType,
@@ -188,7 +216,8 @@ function getAppServiceConfig(appType: string, adapterName: string): any {
           command: '/health'
         },
         containerName: 'app',
-        dependsOn: ['postgres']
+        dependsOn: ['postgres'],
+        logging: 'debug'
       };
     case 'local':
       return {
@@ -201,7 +230,8 @@ function getAppServiceConfig(appType: string, adapterName: string): any {
         },
         ports: [3000],
         workingDirectory: '.',
-        dependsOn: ['postgres']
+        dependsOn: ['postgres'],
+        logging: 'debug'
       };
     case 'container':
     default:
@@ -215,7 +245,8 @@ function getAppServiceConfig(appType: string, adapterName: string): any {
           command: '/health'
         },
         ports: [3000],
-        dependsOn: ['postgres']
+        dependsOn: ['postgres'],
+        logging: 'debug'
       };
   }
 }

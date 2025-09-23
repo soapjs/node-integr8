@@ -29,12 +29,9 @@ module.exports = {
       dependsOn: [{{#each dependsOn}}'{{this}}'{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}{{#if workingDirectory}},
       workingDirectory: '{{workingDirectory}}'{{/if}}{{#if dbStrategy}},
       dbStrategy: '{{dbStrategy}}'{{/if}}{{#if parallelIsolation}},
-      parallelIsolation: '{{parallelIsolation}}'{{/if}}{{#if seed}},
-      seed: {
-{{#if seed.script}}        script: '{{seed.script}}'{{#if seed.data}},{{/if}}{{#if seed.timeout}},{{/if}}{{/if}}{{#if seed.data}}
-        data: '{{seed.data}}'{{#if seed.timeout}},{{/if}}{{/if}}{{#if seed.timeout}}
-        timeout: {{seed.timeout}}{{/if}}
-      }{{/if}}{{#if adapter}},
+      parallelIsolation: '{{parallelIsolation}}'{{/if}}{{#hasContent seed}},
+      seed: {{{json seed}}}{{/hasContent}}{{#if envMapping}},
+      envMapping: {{{json envMapping}}}{{/if}}{{#if adapter}},
       adapter: {
         type: '{{adapter.type}}'{{#if adapter.config}},
         config: {{{json adapter.config}}}{{/if}}
@@ -45,7 +42,15 @@ module.exports = {
   testType: '{{testType}}',
   testDirectory: '{{testDirectory}}',
   testFramework: '{{testFramework}}'{{#if urlPrefix}},
-  urlPrefix: '{{urlPrefix}}'{{/if}}{{#if testMode}},
+  urlPrefix: '{{urlPrefix}}'{{/if}}{{#if adapters}},
+  adapters: [
+    {{#each adapters}}
+    {
+      type: '{{type}}'{{#if config}},
+      config: {{{json config}}}{{/if}}
+    }{{#unless @last}},{{/unless}}
+    {{/each}}
+  ]{{/if}}{{#if testMode}},
   testMode: {
     {{#if testMode.controlPort}}controlPort: {{testMode.controlPort}}{{#if testMode.overrideEndpoint}},{{/if}}{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.overrideEndpoint}}
     overrideEndpoint: '{{testMode.overrideEndpoint}}'{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.enableFakeTimers}}

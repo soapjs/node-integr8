@@ -1,18 +1,18 @@
 import chalk from 'chalk';
-import ora from 'ora';
 import { spawn } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Integr8Config } from '../../types';
+import { jestConfigGenerator } from '../../utils/jest-config-generator';
 
 export async function runCommand(options: { config: string; testType?: string; pattern?: string; watch: boolean }) {
-  const spinner = ora('Loading configuration...').start();
+  console.log(chalk.blue('📋 Loading configuration...'));
 
   try {
     // Load configuration
     const configPath = resolve(options.config);
     if (!existsSync(configPath)) {
-      spinner.fail(`Configuration file not found: ${configPath}`);
+      console.error(chalk.red(`❌ Configuration file not found: ${configPath}`));
       process.exit(1);
     }
 
@@ -31,17 +31,17 @@ export async function runCommand(options: { config: string; testType?: string; p
     }
 
     if (!config.testDirectory) {
-      spinner.fail('No test directory specified in configuration');
+      console.error(chalk.red('❌ No test directory specified in configuration'));
       process.exit(1);
     }
 
-    spinner.text = 'Running integration tests...';
+    console.log(chalk.blue('🧪 Running integration tests...'));
 
     // Check if environment is already running
     const testDir = resolve(config.testDirectory);
     
     if (!existsSync(testDir)) {
-      spinner.fail(`Test directory not found: ${testDir}`);
+      console.error(chalk.red(`❌ Test directory not found: ${testDir}`));
       process.exit(1);
     }
 
@@ -61,12 +61,12 @@ export async function runCommand(options: { config: string; testType?: string; p
         
         if (response.ok) {
           environmentRunning = true;
-          spinner.text = 'Environment detected, running tests...';
+          console.log(chalk.green('✅ Environment detected, running tests...'));
         } else {
-          spinner.warn('Environment might not be running. Consider running "integr8 up" first.');
+          console.warn(chalk.yellow('⚠️  Environment might not be running. Consider running "integr8 up" first.'));
         }
       } catch (error) {
-        spinner.warn('Environment not detected. Consider running "integr8 up" first.');
+        console.warn(chalk.yellow('⚠️  Environment not detected. Consider running "integr8 up" first.'));
       }
     }
 
@@ -77,23 +77,9 @@ export async function runCommand(options: { config: string; testType?: string; p
 
     // Create a temporary Jest config file for this test run
     const jestConfigPath = resolve(process.cwd(), 'jest.integr8.config.js');
-    const jestConfig = `module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'node',
-  roots: ['${testDir}'],
-  testMatch: ['**/*.integration.test.ts', '**/*.test.ts'],
-  transform: {
-    '^.+\\.ts$': 'ts-jest',
-  },
-  testTimeout: 60000,
-  verbose: true,
-  cache: false,
-  passWithNoTests: true,
-  collectCoverage: false
-};`;
-
-    // Write the config file
-    writeFileSync(jestConfigPath, jestConfig);
+    
+    // Generate Jest config using template and configuration
+    jestConfigGenerator.generateJestConfigFile(config, testDir, jestConfigPath);
 
     // Build Jest command using the config file
     const jestArgs = [
@@ -114,7 +100,7 @@ export async function runCommand(options: { config: string; testType?: string; p
     }
 
            // Stop spinner before running Jest
-           spinner.stop();
+           // Tests are running...
 
            // Run Jest
            const jestProcess = spawn('npx', ['jest', ...jestArgs], {
@@ -162,7 +148,7 @@ export async function runCommand(options: { config: string; testType?: string; p
            });
 
   } catch (error: any) {
-    spinner.fail('Failed to run tests');
+    console.error(chalk.red('❌ Failed to run tests'));
     console.error(chalk.red(`Error: ${error.message}`));
     process.exit(1);
   }

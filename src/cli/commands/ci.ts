@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import ora from 'ora';
 import { upCommand } from './up';
 import { runCommand } from './run';
 import { downCommand } from './down';
@@ -12,19 +11,19 @@ export async function ciCommand(options: {
   verbose: boolean;
   noCleanup: boolean;
 }) {
-  const spinner = ora('Running integration tests in CI mode...').start();
+  console.log(chalk.blue('🤖 Running integration tests in CI mode...'));
   const startTime = Date.now();
 
   try {
     // 1. Start environment
     if (options.verbose) {
-      spinner.text = 'Starting test environment...';
+      console.log(chalk.blue('🚀 Starting test environment...'));
     }
     await upCommand({ config: options.config, testType: options.testType, detach: false });
 
     // 2. Run tests
     if (options.verbose) {
-      spinner.text = 'Running integration tests...';
+      console.log(chalk.blue('🧪 Running integration tests...'));
     }
     await runCommand({
       config: options.config,
@@ -36,13 +35,13 @@ export async function ciCommand(options: {
     // 3. Cleanup (unless --no-cleanup)
     if (!options.noCleanup) {
       if (options.verbose) {
-        spinner.text = 'Cleaning up environment...';
+        console.log(chalk.blue('🧹 Cleaning up environment...'));
       }
       await downCommand({ config: options.config, testType: options.testType });
     }
 
     const duration = Date.now() - startTime;
-    spinner.succeed(`CI tests completed successfully in ${(duration / 1000).toFixed(2)}s`);
+    console.log(chalk.green(`✅ CI tests completed successfully in ${(duration / 1000).toFixed(2)}s`));
     
     console.log(chalk.green('\n✅ All integration tests passed!'));
     
@@ -56,7 +55,7 @@ export async function ciCommand(options: {
 
   } catch (error: any) {
     const duration = Date.now() - startTime;
-    spinner.fail(`CI tests failed after ${(duration / 1000).toFixed(2)}s`);
+    console.error(chalk.red(`❌ CI tests failed after ${(duration / 1000).toFixed(2)}s`));
     
     console.error(chalk.red('\n❌ Integration tests failed!'));
     console.error(chalk.red(`Error: ${error.message}`));

@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import ora from 'ora';
 import { existsSync } from 'fs';
 import { TestFileUpdater, TestFileUpdateOptions } from '../../core/test-file-updater';
 import { RouteInfo } from '../../types';
@@ -12,7 +11,7 @@ export async function addEndpointCommand(options: {
   backup: boolean;
   dryRun: boolean;
 }) {
-  const spinner = ora('Adding endpoint to test file...').start();
+  console.log(chalk.blue('➕ Adding endpoint to test file...'));
 
   try {
     // Parse endpoint string (e.g., "GET /users/:id")
@@ -22,24 +21,24 @@ export async function addEndpointCommand(options: {
     const targetFile = await determineTargetFile(endpoint, options.file, options.controller);
     
     if (!targetFile) {
-      spinner.fail('Could not determine target file. Use --file to specify explicitly.');
+      console.error(chalk.red('❌ Could not determine target file. Use --file to specify explicitly.'));
       return;
     }
 
     if (!existsSync(targetFile)) {
-      spinner.fail(`Target file does not exist: ${targetFile}`);
+      console.error(chalk.red(`❌ Target file does not exist: ${targetFile}`));
       return;
     }
 
     // Check if endpoint already exists
     const exists = await TestFileUpdater.endpointExistsInFile(targetFile, endpoint);
     if (exists) {
-      spinner.fail(`Endpoint ${endpoint.method} ${endpoint.path} already exists in ${targetFile}`);
+      console.error(chalk.red(`❌ Endpoint ${endpoint.method} ${endpoint.path} already exists in ${targetFile}`));
       return;
     }
 
     if (options.dryRun) {
-      spinner.succeed('Dry run completed - no changes made');
+      console.log(chalk.green('✅ Dry run completed - no changes made'));
       console.log(chalk.blue('\nWould add endpoint:'));
       console.log(`  Method: ${endpoint.method}`);
       console.log(`  Path: ${endpoint.path}`);
@@ -60,7 +59,7 @@ export async function addEndpointCommand(options: {
       backup: options.backup
     });
 
-    spinner.succeed(`Successfully added ${endpoint.method} ${endpoint.path} to ${targetFile}`);
+    console.log(chalk.green(`✅ Successfully added ${endpoint.method} ${endpoint.path} to ${targetFile}`));
     
     console.log(chalk.green('\n✅ Endpoint added successfully!'));
     console.log(chalk.blue('\nAdded to file:'));
@@ -73,7 +72,7 @@ export async function addEndpointCommand(options: {
     console.log('4. Run tests to verify they work correctly');
 
   } catch (error: any) {
-    spinner.fail('Failed to add endpoint');
+    console.error(chalk.red('❌ Failed to add endpoint'));
     console.error(chalk.red(error.message));
     process.exit(1);
   }

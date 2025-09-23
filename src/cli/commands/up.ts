@@ -1,10 +1,9 @@
 import chalk from 'chalk';
-import ora from 'ora';
 import { existsSync } from 'fs';
 import { EnvironmentOrchestrator } from '../../core/environment-orchestrator';
 
 export async function upCommand(options: { config: string; testType?: string; detach: boolean; composeFile?: string; local?: string[]; fast?: boolean }) {
-  const spinner = ora('Starting test environment...').start();
+  console.log(chalk.blue('🚀 Starting test environment...'));
 
   try {
     // Auto-detect config file if testType is provided and config is default
@@ -57,7 +56,7 @@ export async function upCommand(options: { config: string; testType?: string; de
       await orchestrator.start();
     }
     
-    spinner.succeed('Test environment started successfully!');
+    console.log(chalk.green('✅ Test environment started successfully!'));
     
     console.log(chalk.green('\n✅ Environment ready!'));
     console.log(chalk.blue('\nServices:'));
@@ -107,7 +106,7 @@ export async function upCommand(options: { config: string; testType?: string; de
     }
 
   } catch (error: any) {
-    spinner.fail('Failed to start test environment');
+    console.error(chalk.red('❌ Failed to start test environment'));
     console.error(error);
     process.exit(1);
   }

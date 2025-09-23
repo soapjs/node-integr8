@@ -1,6 +1,6 @@
 {
   "name": "@soapjs/integr8",
-  "version": "0.0.47",
+  "version": "0.0.59",
   "description": "Framework-agnostic integration testing with Testcontainers",
   "homepage": "https://docs.soapjs.com",
   "repository": "https://github.com/soapjs/node-integr8",

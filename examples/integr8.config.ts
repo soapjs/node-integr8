@@ -1,4 +1,12 @@
-import { createConfig, createPostgresService, createAppConfig, createSeedConfig, createExpressAdapter } from '@soapjs/integr8';
+import { 
+  createConfig, 
+  createPostgresService, 
+  createAppService, 
+  createSeedConfig, 
+  createExpressAdapter,
+  createTestModeConfig,
+  createTestScenario
+} from '../src/utils/config';
 
 export default createConfig({
   services: [
@@ -7,28 +15,40 @@ export default createConfig({
         POSTGRES_DB: 'testdb',
         POSTGRES_USER: 'testuser',
         POSTGRES_PASSWORD: 'testpass',
-      }
+      },
+      dbStrategy: 'savepoint',
+      parallelIsolation: 'schema'
     }),
+    createAppService('app', {
+      image: 'sample-express-app:latest',
+      command: 'npm start',
+      healthcheck: {
+        command: '/health',
+        interval: 1000,
+        timeout: 30000,
+        retries: 3
+      },
+      ports: [3000],
+      environment: {
+        NODE_ENV: 'test',
+        PORT: '3000',
+      },
+      dependsOn: ['postgres']
+    })
   ],
-  app: createAppConfig({
-    image: 'sample-express-app:latest',
-    command: 'npm start',
-    healthcheck: '/health',
-    port: 3000,
-    environment: {
-      NODE_ENV: 'test',
-      PORT: '3000',
-    }
-  }),
-  seed: createSeedConfig('npm run seed'),
-  dbStrategy: 'savepoint',
-  parallelIsolation: 'schema',
+  testType: 'api',
+  testDirectory: './tests',
+  testFramework: 'jest',
+  testScenarios: [
+    createTestScenario('should return health status', 200),
+    createTestScenario('should handle invalid requests', 400)
+  ],
   adapters: [
-    createExpressAdapter(),
+    createExpressAdapter()
   ],
-  testMode: {
+  testMode: createTestModeConfig({
     controlPort: 3001,
     overrideEndpoint: '/__test__/override',
-    enableFakeTimers: true,
-  }
+    enableFakeTimers: true
+  })
 });

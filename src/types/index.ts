@@ -6,6 +6,10 @@ export interface Integr8Config {
   testScenarios?: TestScenario[];
   testMode?: TestModeConfig;
   urlPrefix?: string;
+  testTimeout?: number;
+  setupTimeout?: number;
+  teardownTimeout?: number;
+  adapters?: AdapterConfig[];
 }
 
 export interface ServiceConfig {
@@ -13,26 +17,37 @@ export interface ServiceConfig {
   type: 'service' | 'postgres' | 'mysql' | 'mongo' | 'redis' | 'kafka' | 'mailhog' | 'custom';
   mode?: 'local' | 'container';
   adapter?: AdapterConfig;
+  // For container services only:
   image?: string;
+  command?: string;
+
   ports?: number[];
   environment?: Record<string, string>;
   volumes?: VolumeConfig[];
   healthcheck?: HealthCheckConfig;
   dependsOn?: string[];
   containerName?: string;
-  command?: string;
   workingDirectory?: string;
   
-  // For database services:
-  dbStrategy?: 'savepoint' | 'schema' | 'database' | 'snapshot';
+  // For database services only:
+  dbStrategy?: 'savepoint' | 'schema' | 'database' | 'snapshot' | 'hybrid-savepoint-schema' | 'hybrid-schema-database' | 'transactional-schema';
   parallelIsolation?: 'schema' | 'db' | 'none';
+  seed?: SeedConfig;
   
-  // Seeding options:
-  seed?: {
-    data?: string;              // URL to folder with SQL/JSON or specific file
-    script?: string;            // npm run seed, psql -U test -d test -f /seed/seed.sql
-    timeout?: number;
-  };
+  // Environment variable mapping for application services
+  envMapping?: EnvironmentMapping;
+  
+  // Logging control for debugging
+  logging?: 'debug' | 'error' | 'log' | 'info' | 'warn' | boolean;
+}
+
+export interface EnvironmentMapping {
+  host?: string;        // Environment variable name for host (e.g., 'DB_HOST')
+  port?: string;        // Environment variable name for port (e.g., 'DB_PORT')
+  username?: string;    // Environment variable name for username (e.g., 'DB_USERNAME')
+  password?: string;    // Environment variable name for password (e.g., 'DB_PASSWORD')
+  database?: string;    // Environment variable name for database name (e.g., 'DB_NAME')
+  url?: string;         // Environment variable name for full connection URL (e.g., 'DATABASE_URL')
 }
 
 export interface VolumeConfig {
@@ -55,6 +70,18 @@ export interface SeedConfig {
   timeout?: number;
   entities?: any[];
   typeorm?: TypeORMSeedConfig;
+  strategy?: 'once' | 'per-file' | 'per-test' | 'custom';
+  restoreStrategy?: 'none' | 'rollback' | 'reset' | 'snapshot';
+  customScenarios?: SeedScenario[];
+}
+
+export interface SeedScenario {
+  name: string;
+  description?: string;
+  condition?: (context: any) => boolean;
+  seedData?: any[];
+  seedCommand?: string;
+  restoreAfter?: boolean;
 }
 
 export interface TypeORMSeedConfig {
@@ -64,7 +91,7 @@ export interface TypeORMSeedConfig {
   runMigrations?: boolean;
 }
 
-export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot';
+export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot' | 'hybrid-savepoint-schema' | 'hybrid-schema-database' | 'transactional-schema';
 
 export interface AdapterConfig {
   type: string;
@@ -193,6 +220,12 @@ export interface DBStateManager {
   createDatabase(dbName: string): Promise<void>;
   dropDatabase(dbName: string): Promise<void>;
   cleanup(): Promise<void>;
+  beginTransaction(): Promise<void>;
+  commitTransaction(): Promise<void>;
+  rollbackTransaction(): Promise<void>;
+  getPerformanceMetrics(): PerformanceMetrics[];
+  getAverageOperationTime(operation: string): number;
+  getStrategyPerformance(): Record<string, number>;
 }
 
 export interface Adapter {
@@ -225,4 +258,12 @@ export interface TestScenario {
   queryParams?: any;
   pathParams?: any;
   expectedResponse?: any;
+}
+
+export interface PerformanceMetrics {
+  operation: string;
+  duration: number;
+  timestamp: number;
+  workerId: string;
+  strategy: string;
 }

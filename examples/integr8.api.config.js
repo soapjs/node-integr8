@@ -1,31 +1,47 @@
-module.exports = {
+const { 
+  createConfig, 
+  createPostgresService, 
+  createAppService,
+  createExpressAdapter,
+  createHealthCheckConfig,
+  createTestScenario,
+  createTestModeConfig
+} = require('../src/utils/config');
+
+module.exports = createConfig({
   services: [
-    {
-      name: 'postgres',
-      type: 'postgres',
-      image: 'postgres:15-alpine',
-      ports: [5432],
+    createPostgresService('postgres', {
       environment: {
         POSTGRES_DB: 'testdb',
         POSTGRES_USER: 'testuser',
         POSTGRES_PASSWORD: 'testpass'
-      }
-    },
-    {
-      name: 'app',
-      type: 'service',
-      mode: 'container',
+      },
+      dbStrategy: 'savepoint'
+    }),
+    createAppService('app', {
       image: 'my-app:latest',
       ports: [3000],
       command: 'npm start',
-      healthcheck: {
-        command: '/health'
-      },
+      healthcheck: createHealthCheckConfig('/health', {
+        interval: 1000,
+        timeout: 30000,
+        retries: 3
+      }),
       containerName: 'app',
-      dependsOn: ['postgres']
-    }
+      dependsOn: ['postgres'],
+      adapter: createExpressAdapter()
+    })
   ],
   testType: 'api',
   testDirectory: 'integr8/api',
-  testFramework: 'jest'
-};
+  testFramework: 'jest',
+  testScenarios: [
+    createTestScenario('should return 200 for health check', 200),
+    createTestScenario('should return 404 for unknown endpoint', 404)
+  ],
+  adapters: [createExpressAdapter()],
+  testMode: createTestModeConfig({
+    controlPort: 3001,
+    overrideEndpoint: '/__test__/override'
+  })
+});

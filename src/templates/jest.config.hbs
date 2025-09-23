@@ -1,0 +1,16 @@
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['{{testDir}}'],
+  testMatch: ['**/*.integration.test.ts', '**/*.test.ts'],
+  transform: {
+    '^.+\\.ts$': 'ts-jest',
+  },
+  testTimeout: {{testTimeout}},
+  setupTimeout: {{setupTimeout}},
+  teardownTimeout: {{teardownTimeout}},
+  verbose: true,
+  cache: false,
+  passWithNoTests: true,
+  collectCoverage: false
+};

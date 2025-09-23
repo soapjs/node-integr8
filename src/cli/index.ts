@@ -11,6 +11,7 @@ import { runCommand } from './commands/run';
 import { addEndpointCommand } from './commands/add-endpoint';
 import { ciCommand } from './commands/ci';
 import { ScanCommand } from './commands/scan';
+import { cleanupCommand } from './commands/cleanup';
 
 // Helper function to find config file
 function findConfigFile(testType?: string): string {
@@ -120,5 +121,7 @@ program
     const scanCommand = new ScanCommand();
     await scanCommand.execute(options);
   });
+
+program.addCommand(cleanupCommand);
 
 program.parse();

@@ -34,6 +34,26 @@ export class InteractiveInit {
     Handlebars.registerHelper('json', (context: any) => {
       return JSON.stringify(context, null, 2);
     });
+    
+    // Register helper to check if an object has content
+    Handlebars.registerHelper('hasContent', function(this: any, context: any, options: any) {
+      if (!context || typeof context !== 'object') {
+        return options.inverse(this);
+      }
+      
+      // Check if object has any non-empty properties
+      const hasContent = Object.keys(context).some(key => {
+        const value = context[key];
+        if (value === null || value === undefined) return false;
+        if (typeof value === 'string' && value.trim() === '') return false;
+        if (Array.isArray(value) && value.length === 0) return false;
+        if (typeof value === 'object' && Object.keys(value).length === 0) return false;
+        return true;
+      });
+      
+      return hasContent ? options.fn(this) : options.inverse(this);
+    });
+
   }
 
   async run(): Promise<void> {
@@ -322,7 +342,8 @@ export class InteractiveInit {
         ports: [3000],
         healthcheck: this.answers.readinessEndpoint ? { command: this.answers.readinessPath } : undefined,
         containerName: this.answers.mainServiceName,
-        dependsOn: this.answers.databases.filter(db => db !== 'none')
+        dependsOn: this.answers.databases.filter(db => db !== 'none'),
+        logging: 'debug' // Enable debug logging for app service by default
       });
     }
 
@@ -335,7 +356,8 @@ export class InteractiveInit {
         type: db as any,
         mode: 'container', // Default to container mode for databases
         containerName: `my-app-${db}`,
-        dependsOn: []
+        dependsOn: [],
+        environment: this.getDefaultEnvironment(db)
       };
 
       // Add database-specific configuration
@@ -343,10 +365,15 @@ export class InteractiveInit {
       if (dbAnswers) {
         dbConfig.dbStrategy = dbAnswers.strategy as any;
 
+        // Add default environment mapping for databases
+        dbConfig.envMapping = this.getDefaultEnvMapping(db);
+        dbConfig.logging = 'debug'; // Enable debug logging for databases by default
+
         if (dbAnswers.seeding !== 'none') {
           dbConfig.seed = {
-            script: dbAnswers.seedCommand,
-            data: dbAnswers.seedFile
+            command: dbAnswers.seedCommand,
+            strategy: 'per-file',
+            restoreStrategy: 'rollback'
           };
         }
       }
@@ -379,6 +406,75 @@ export class InteractiveInit {
       mailhog: 'mailhog/mailhog:latest'
     };
     return images[serviceType] || 'custom:latest';
+  }
+
+  private getDefaultEnvironment(dbType: string): any {
+    const environments: Record<string, any> = {
+      postgres: {
+        POSTGRES_DB: 'myapp',
+        POSTGRES_USER: 'myuser',
+        POSTGRES_PASSWORD: 'mypassword'
+      },
+      mysql: {
+        MYSQL_DATABASE: 'myapp',
+        MYSQL_USER: 'myuser',
+        MYSQL_PASSWORD: 'mypassword',
+        MYSQL_ROOT_PASSWORD: 'rootpassword'
+      },
+      mongo: {
+        MONGO_INITDB_DATABASE: 'myapp',
+        MONGO_INITDB_ROOT_USERNAME: 'myuser',
+        MONGO_INITDB_ROOT_PASSWORD: 'mypassword'
+      },
+      redis: {
+        REDIS_PASSWORD: 'mypassword'
+      }
+    };
+    return environments[dbType] || {};
+  }
+
+  private getDefaultEnvMapping(dbType: string): any {
+    const mappings: Record<string, any> = {
+      postgres: {
+        host: 'DB_HOST',
+        port: 'DB_PORT',
+        username: 'DB_USERNAME',
+        password: 'DB_PASSWORD',
+        database: 'DB_NAME',
+        url: 'DATABASE_URL'
+      },
+      mysql: {
+        host: 'DB_HOST',
+        port: 'DB_PORT',
+        username: 'DB_USERNAME',
+        password: 'DB_PASSWORD',
+        database: 'DB_NAME',
+        url: 'DATABASE_URL'
+      },
+      mongo: {
+        host: 'MONGO_HOST',
+        port: 'MONGO_PORT',
+        username: 'MONGO_USERNAME',
+        password: 'MONGO_PASSWORD',
+        database: 'MONGO_DATABASE',
+        url: 'MONGO_URL'
+      },
+      redis: {
+        host: 'REDIS_HOST',
+        port: 'REDIS_PORT',
+        username: 'REDIS_USERNAME',
+        password: 'REDIS_PASSWORD',
+        url: 'REDIS_URL'
+      }
+    };
+    return mappings[dbType] || {
+      host: 'DB_HOST',
+      port: 'DB_PORT',
+      username: 'DB_USERNAME',
+      password: 'DB_PASSWORD',
+      database: 'DB_NAME',
+      url: 'DATABASE_URL'
+    };
   }
 
   private getConfigFilename(): string {

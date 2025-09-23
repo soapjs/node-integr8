@@ -5,13 +5,18 @@ import {
   Network,
   StartedNetwork
 } from 'testcontainers';
-import { Integr8Config, IEnvironmentOrchestrator, IEnvironmentContext, ServiceConfig } from '../types';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { Integr8Config, IEnvironmentOrchestrator, IEnvironmentContext, ServiceConfig, EnvironmentMapping } from '../types';
 import { spawn, ChildProcess } from 'child_process';
 import { HttpClient } from './http-client';
 import { DatabaseManager } from './database-manager';
 import { TestContext } from './test-context';
 import { ClockManager } from './clock-manager';
 import { EventBusManager } from './event-bus-manager';
+import { PortManager } from '../utils/port-manager';
+import { HealthCheckManager } from '../utils/health-check';
+import { EnvironmentManager } from '../utils/env-manager';
 
 // Ensure Node.js 18+ for native fetch support
 const nodeVersion = process.version;
@@ -89,37 +94,51 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
   async start(): Promise<void> {
     console.log(`🚀 Starting environment for worker ${this.workerId}`);
     
-    // Create network
-    this.network = await new Network().start();
-    
-    // Start all services
-    await this.startServices();
-    
-    // Wait for everything to be ready
-    await this.waitForReady();
-    
-    // Initialize context
-    this.context = await this.createContext();
-    
-    console.log(`✅ Environment ready for worker ${this.workerId}`);
+    try {
+      // Create network
+      this.network = await new Network().start();
+      
+      // Start all services
+      await this.startServices();
+      
+      // Wait for everything to be ready
+      await this.waitForReady();
+      
+      // Initialize context
+      this.context = await this.createContext();
+      
+      console.log(`✅ Environment ready for worker ${this.workerId}`);
+    } catch (error) {
+      console.error('❌ Error starting environment:', error);
+      // Cleanup on error
+      await this.cleanupOnError();
+      throw error;
+    }
   }
 
   async startFast(): Promise<void> {
     console.log(`🚀 Starting environment for worker ${this.workerId} (fast mode)`);
     
-    // Create network
-    this.network = await new Network().start();
-    
-    // Start all services
-    await this.startServices();
-    
-    // Skip health checks in fast mode
-    console.log('⚡ Fast mode: skipping health checks');
-    
-    // Initialize context
-    this.context = await this.createContext();
-    
-    console.log(`✅ Environment started for worker ${this.workerId} (health checks skipped)`);
+    try {
+      // Create network
+      this.network = await new Network().start();
+      
+      // Start all services
+      await this.startServices();
+      
+      // Skip health checks in fast mode
+      console.log('⚡ Fast mode: skipping health checks');
+      
+      // Initialize context
+      this.context = await this.createContext();
+      
+      console.log(`✅ Environment started for worker ${this.workerId} (health checks skipped)`);
+    } catch (error) {
+      console.error('❌ Error starting environment (fast mode):', error);
+      // Cleanup on error
+      await this.cleanupOnError();
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
@@ -180,8 +199,15 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     // Stop services (for non-compose setups)
     for (const [name, container] of this.containers) {
       console.log(`Stopping service: ${name}`);
-      await container.stop();
+      try {
+        await container.stop();
+      } catch (error) {
+        console.log(`⚠️  Container ${name} already stopped or not found:`, error instanceof Error ? error.message : String(error));
+      }
     }
+    
+    // Clear containers map
+    this.containers.clear();
     
     // Remove network (for non-compose setups)
     if (this.network && !this.composeEnvironment) {
@@ -194,6 +220,186 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     }
     
     console.log(`✅ Environment stopped for worker ${this.workerId}`);
+  }
+
+  private async cleanupOnError(): Promise<void> {
+    console.log(`🧹 Cleaning up after error for worker ${this.workerId}`);
+    
+    try {
+      // Stop any containers that were started
+      for (const [name, container] of this.containers) {
+        try {
+          console.log(`Stopping container: ${name}`);
+          await container.stop();
+        } catch (error) {
+          console.log(`⚠️  Failed to stop container ${name}:`, error instanceof Error ? error.message : String(error));
+        }
+      }
+      
+      // Clear containers map
+      this.containers.clear();
+      
+      // Stop local processes
+      for (const [name, process] of this.localProcesses) {
+        try {
+          console.log(`Stopping process: ${name}`);
+          process.kill('SIGTERM');
+        } catch (error) {
+          console.log(`⚠️  Failed to stop process ${name}:`, error instanceof Error ? error.message : String(error));
+        }
+      }
+      
+      // Clear processes map
+      this.localProcesses.clear();
+      
+      // Stop network
+      if (this.network) {
+        try {
+          await this.network.stop();
+        } catch (error) {
+          console.log('⚠️  Failed to stop network:', error instanceof Error ? error.message : String(error));
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error during cleanup:', error);
+    }
+  }
+
+  private async removeConflictingContainer(containerName: string): Promise<void> {
+    const execAsync = promisify(exec);
+    
+    try {
+      // Check if container exists
+      const { stdout } = await execAsync(`docker ps -a --filter name=${containerName} --format "{{.Names}}"`);
+      
+      if (stdout.trim()) {
+        console.log(`🗑️  Removing conflicting container: ${containerName}`);
+        
+        // Stop the container if it's running
+        try {
+          await execAsync(`docker stop ${containerName}`);
+          console.log(`⏹️  Stopped container: ${containerName}`);
+        } catch (error) {
+          // Container might already be stopped
+          console.log(`⚠️  Container ${containerName} already stopped or not running`);
+        }
+        
+        // Remove the container
+        await execAsync(`docker rm ${containerName}`);
+        console.log(`✅ Removed container: ${containerName}`);
+      }
+    } catch (error) {
+      console.log(`⚠️  Failed to remove conflicting container ${containerName}:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private getServiceConnectionStrings(): Record<string, string> {
+    const connectionStrings: Record<string, string> = {};
+    
+    console.log(`🔍 Generating connection strings from ${this.containers.size} containers:`, Array.from(this.containers.keys()));
+    
+    // Get connection strings for all database services
+    for (const [serviceName, container] of this.containers) {
+      const serviceConfig = this.config.services.find(s => s.name === serviceName);
+      if (!serviceConfig || !serviceConfig.envMapping) {
+        console.log(`⚠️  Skipping ${serviceName}: no envMapping found`);
+        continue;
+      }
+      
+      console.log(`🔗 Processing ${serviceName} with envMapping:`, serviceConfig.envMapping);
+      
+      const mapping = serviceConfig.envMapping;
+      const host = container.getHost();
+      const port = this.getServicePort(serviceName);
+      
+      console.log(`📍 Container ${serviceName} details:`, {
+        host,
+        port,
+        mappedPort: container.getMappedPort(port)
+      });
+      
+      // Get database credentials from container environment
+      const environment = serviceConfig.environment || {};
+      
+      // Generate connection strings based on envMapping
+      if (mapping.host) {
+        connectionStrings[mapping.host] = host;
+      }
+      if (mapping.port) {
+        connectionStrings[mapping.port] = container.getMappedPort(port).toString();
+      }
+      if (mapping.username) {
+        connectionStrings[mapping.username] = environment.POSTGRES_USER || environment.MYSQL_USER || environment.MONGO_INITDB_ROOT_USERNAME || 'test';
+      }
+      if (mapping.password) {
+        connectionStrings[mapping.password] = environment.POSTGRES_PASSWORD || environment.MYSQL_PASSWORD || environment.MONGO_INITDB_ROOT_PASSWORD || 'test';
+      }
+      if (mapping.database) {
+        connectionStrings[mapping.database] = environment.POSTGRES_DB || environment.MYSQL_DATABASE || environment.MONGO_INITDB_DATABASE || 'test';
+      }
+      if (mapping.url) {
+        // Generate full connection URL
+        const username = environment.POSTGRES_USER || environment.MYSQL_USER || environment.MONGO_INITDB_ROOT_USERNAME || 'test';
+        const password = environment.POSTGRES_PASSWORD || environment.MYSQL_PASSWORD || environment.MONGO_INITDB_ROOT_PASSWORD || 'test';
+        const database = environment.POSTGRES_DB || environment.MYSQL_DATABASE || environment.MONGO_INITDB_DATABASE || 'test';
+        
+        let protocol = 'postgresql';
+        if (serviceConfig.type === 'mysql') protocol = 'mysql';
+        if (serviceConfig.type === 'mongo') protocol = 'mongodb';
+        
+        connectionStrings[mapping.url] = `${protocol}://${username}:${password}@${host}:${port}/${database}`;
+      }
+    }
+    
+    console.log('🔗 Generated connection strings:', Object.keys(connectionStrings));
+    return connectionStrings;
+  }
+
+  private configureContainerLogging(container: GenericContainer, logging: 'debug' | 'error' | 'log' | 'info' | 'warn' | boolean): GenericContainer {
+    if (logging === false) {
+      // Disable all logging
+      return container.withLogConsumer(() => {});
+    } else if (logging === true) {
+      // Enable all logging
+      return container.withLogConsumer((stream) => {
+        stream.on('data', (chunk) => {
+          console.log(`[${new Date().toISOString()}] Container:`, chunk.toString().trim());
+        });
+      });
+    } else {
+      // Enable specific log level
+      return container.withLogConsumer((stream) => {
+        stream.on('data', (chunk) => {
+          const message = chunk.toString().trim();
+          const timestamp = new Date().toISOString();
+          
+          // Filter logs based on level
+          if (this.shouldLogMessage(message, logging)) {
+            console.log(`[${timestamp}] [${logging.toUpperCase()}] Container:`, message);
+          }
+        });
+      });
+    }
+  }
+
+  private shouldLogMessage(message: string, level: 'debug' | 'error' | 'log' | 'info' | 'warn'): boolean {
+    const messageLower = message.toLowerCase();
+    
+    switch (level) {
+      case 'error':
+        return messageLower.includes('error') || messageLower.includes('fatal') || messageLower.includes('critical');
+      case 'warn':
+        return messageLower.includes('warn') || messageLower.includes('warning') || this.shouldLogMessage(message, 'error');
+      case 'info':
+        return messageLower.includes('info') || this.shouldLogMessage(message, 'warn');
+      case 'log':
+        return messageLower.includes('log') || this.shouldLogMessage(message, 'info');
+      case 'debug':
+        return true; // Debug shows everything
+      default:
+        return true;
+    }
   }
 
   async isReady(): Promise<boolean> {
@@ -278,11 +484,107 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
   }
 
   private async startServices(): Promise<void> {
-    const servicePromises = this.config.services.map(service => this.startService(service));
-    await Promise.all(servicePromises);
+    try {
+      // Start database and infrastructure services first
+      await this.startInfrastructureServices();
+      
+      // Generate connection strings
+      const connectionStrings = this.getServiceConnectionStrings();
+      
+      // Start application services with connection strings
+      await this.startApplicationServices(connectionStrings);
+    } catch (error) {
+      console.error('❌ Error starting services:', error);
+      // Cleanup on error
+      await this.cleanupOnError();
+      throw error;
+    }
+  }
+
+  private async startInfrastructureServices(): Promise<void> {
+    const startedServices = new Set<string>();
+    const serviceMap = new Map(this.config.services.map(s => [s.name, s]));
     
-    // Set connection strings for service containers after all services are started
-    await this.setServiceConnectionStrings();
+    // Start only infrastructure services (databases, redis, etc.) first
+    for (const service of this.config.services) {
+      if (service.type !== 'service') {
+        await this.startServiceWithDependencies(service, serviceMap, startedServices);
+      }
+    }
+  }
+
+  private async startApplicationServices(connectionStrings: Record<string, string>): Promise<void> {
+    const startedServices = new Set<string>();
+    const serviceMap = new Map(this.config.services.map(s => [s.name, s]));
+    
+    // Start application services with connection strings
+    for (const service of this.config.services) {
+      if (service.type === 'service') {
+        await this.startServiceWithDependenciesAndEnv(service, serviceMap, startedServices, connectionStrings);
+      }
+    }
+  }
+
+  private async startServicesWithDependencies(): Promise<void> {
+    const startedServices = new Set<string>();
+    const serviceMap = new Map(this.config.services.map(s => [s.name, s]));
+    
+    // Start services in dependency order
+    for (const service of this.config.services) {
+      await this.startServiceWithDependencies(service, serviceMap, startedServices);
+    }
+  }
+
+  private async startServiceWithDependencies(
+    service: ServiceConfig, 
+    serviceMap: Map<string, ServiceConfig>, 
+    startedServices: Set<string>
+  ): Promise<void> {
+    // Skip if already started
+    if (startedServices.has(service.name)) {
+      return;
+    }
+
+    // Start dependencies first
+    if (service.dependsOn) {
+      for (const depName of service.dependsOn) {
+        const depService = serviceMap.get(depName);
+        if (depService && !startedServices.has(depName)) {
+          await this.startServiceWithDependencies(depService, serviceMap, startedServices);
+        }
+      }
+    }
+
+    // Start this service
+    await this.startService(service);
+    startedServices.add(service.name);
+  }
+
+  private async startServiceWithDependenciesAndEnv(
+    service: ServiceConfig, 
+    serviceMap: Map<string, ServiceConfig>, 
+    startedServices: Set<string>,
+    connectionStrings: Record<string, string>
+  ): Promise<void> {
+    // Skip if already started
+    if (startedServices.has(service.name)) {
+      return;
+    }
+
+    // Start dependencies first
+    if (service.dependsOn) {
+      for (const depName of service.dependsOn) {
+        const depService = serviceMap.get(depName);
+        if (depService && !startedServices.has(depName)) {
+          // Dependencies should already be started by infrastructure services
+          console.log(`⚠️  Dependency ${depName} should already be started by infrastructure services`);
+        }
+      }
+    }
+
+    // Start this service with connection strings
+    await this.startServiceWithEnv(service, connectionStrings);
+    startedServices.add(service.name);
   }
 
   private async startService(serviceConfig: ServiceConfig): Promise<void> {
@@ -290,7 +592,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     
     // Handle local mode for service type
     if (serviceConfig.type === 'service' && serviceConfig.mode === 'local') {
-      await this.startLocalService(serviceConfig);
+      await this.startLocalServiceLegacy(serviceConfig);
       return;
     }
     
@@ -298,68 +600,77 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     
     switch (serviceConfig.type) {
       case 'postgres':
+        const postgresEnv = EnvironmentManager.mergeWithDefaults(
+          serviceConfig.environment, 
+          EnvironmentManager.getDefaultDatabaseEnv('postgres')
+        );
         container = new GenericContainer('postgres:15-alpine')
-          .withEnvironment({
-            POSTGRES_DB: 'test',
-            POSTGRES_USER: 'test',
-            POSTGRES_PASSWORD: 'test',
-            ...serviceConfig.environment
-          })
+          .withEnvironment(postgresEnv)
           .withExposedPorts(5432)
-          .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections'));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('postgres', 5432));
         
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
         break;
         
       case 'mysql':
+        const mysqlEnv = EnvironmentManager.mergeWithDefaults(
+          serviceConfig.environment, 
+          EnvironmentManager.getDefaultDatabaseEnv('mysql')
+        );
         container = new GenericContainer('mysql:8.0')
-          .withEnvironment({
-            MYSQL_ROOT_PASSWORD: 'test',
-            MYSQL_DATABASE: 'test',
-            MYSQL_USER: 'test',
-            MYSQL_PASSWORD: 'test',
-            ...serviceConfig.environment
-          })
+          .withEnvironment(mysqlEnv)
           .withExposedPorts(3306)
-          .withWaitStrategy(Wait.forLogMessage('ready for connections'));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('mysql', 3306));
         
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
         break;
         
       case 'mongo':
+        const mongoEnv = EnvironmentManager.mergeWithDefaults(
+          serviceConfig.environment, 
+          EnvironmentManager.getDefaultDatabaseEnv('mongo')
+        );
         container = new GenericContainer('mongo:7.0')
-          .withEnvironment({
-            MONGO_INITDB_ROOT_USERNAME: 'test',
-            MONGO_INITDB_ROOT_PASSWORD: 'test',
-            MONGO_INITDB_DATABASE: 'test',
-            ...serviceConfig.environment
-          })
+          .withEnvironment(mongoEnv)
           .withExposedPorts(27017)
-          .withWaitStrategy(Wait.forLogMessage('Waiting for connections'));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('mongo', 27017));
         
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
         break;
         
       case 'redis':
+        const redisEnv = EnvironmentManager.mergeWithDefaults(
+          serviceConfig.environment, 
+          EnvironmentManager.getDefaultDatabaseEnv('redis')
+        );
         container = new GenericContainer('redis:7-alpine')
+          .withEnvironment(redisEnv)
           .withExposedPorts(6379)
-          .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('redis', 6379));
         
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
         break;
@@ -372,6 +683,8 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
         break;
@@ -380,7 +693,12 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         if (!serviceConfig.image) {
           throw new Error(`App service ${serviceConfig.name} requires image`);
         }
-        container = new GenericContainer(serviceConfig.image);
+        // Get dependency information for environment variables
+        const dependencyInfo = this.getDependencyInfo(serviceConfig);
+        const appEnv = EnvironmentManager.generateEnvironmentVars(serviceConfig, dependencyInfo);
+        
+        container = new GenericContainer(serviceConfig.image)
+          .withEnvironment(appEnv);
         
         // Set ports
         if (serviceConfig.ports && serviceConfig.ports.length > 0) {
@@ -403,6 +721,8 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
         break;
@@ -416,6 +736,8 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         if (serviceConfig.containerName) {
           // Add worker ID to container name to avoid conflicts
           const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          // Remove any existing container with the same name
+          await this.removeConflictingContainer(uniqueContainerName);
           container = container.withName(uniqueContainerName);
         }
     }
@@ -464,6 +786,12 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
       }
     }
     
+    // Apply logging configuration
+    if (serviceConfig.logging !== undefined) {
+      container = this.configureContainerLogging(container, serviceConfig.logging);
+      console.log(`📝 Logging configured for ${serviceConfig.name}: ${serviceConfig.logging}`);
+    }
+    
     // Start container
     const startedContainer = await container.start();
     this.containers.set(serviceConfig.name, startedContainer);
@@ -476,7 +804,108 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     console.log(`✅ Service ${serviceConfig.name} started`);
   }
 
-  private async startLocalService(serviceConfig: ServiceConfig): Promise<void> {
+  private async startServiceWithEnv(serviceConfig: ServiceConfig, connectionStrings: Record<string, string>): Promise<void> {
+    console.log(`Starting service with environment: ${serviceConfig.name}`);
+    
+    // Handle local mode for service type
+    if (serviceConfig.type === 'service' && serviceConfig.mode === 'local') {
+      await this.startLocalServiceWithEnv(serviceConfig, connectionStrings);
+      return;
+    }
+    
+    // For container services, use the existing startService method but with updated environment
+    // We need to modify the environment variables before starting
+    const originalEnv = serviceConfig.environment;
+    serviceConfig.environment = {
+      ...connectionStrings,
+      ...serviceConfig.environment
+    };
+    
+    try {
+      await this.startService(serviceConfig);
+    } finally {
+      // Restore original environment
+      serviceConfig.environment = originalEnv;
+    }
+  }
+
+  private async startLocalServiceWithEnv(serviceConfig: ServiceConfig, connectionStrings: Record<string, string>): Promise<void> {
+    if (!serviceConfig.command) {
+      throw new Error(`Local service ${serviceConfig.name} requires command`);
+    }
+
+    console.log(`🚀 Starting local service: ${serviceConfig.name}`);
+    console.log(`   Command: ${serviceConfig.command}`);
+    console.log(`   Working directory: ${serviceConfig.workingDirectory || '.'}`);
+    console.log(`🔗 Connection strings for local service:`, connectionStrings);
+
+    // Set environment variables with connection strings
+    const env: Record<string, string> = {
+      NODE_ENV: 'test',
+      TEST_MODE: '1',
+      WORKER_ID: this.workerId,
+      ...connectionStrings,
+      ...serviceConfig.environment,
+      ...process.env  // Inherit from parent process
+    };
+
+    console.log(`📝 Environment variables for local service:`, Object.keys(env).filter(key => 
+      key.includes('DB_') || key.includes('DATABASE_') || key.includes('POSTGRES_')
+    ));
+
+    // Parse command and arguments
+    const [command, ...args] = serviceConfig.command.split(' ');
+    
+    // Start the process
+    const childProcess = spawn(command, args, {
+      cwd: serviceConfig.workingDirectory || '.',
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: false
+    });
+
+    // Store process reference
+    this.localProcesses.set(serviceConfig.name, childProcess);
+
+    // Log stdout from the process
+    childProcess.stdout?.on('data', (data: Buffer) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.log(`📱 [${serviceConfig.name}] ${output}`);
+      }
+    });
+
+    // Log stderr from the process
+    childProcess.stderr?.on('data', (data: Buffer) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.error(`🚨 [${serviceConfig.name}] ${output}`);
+      }
+    });
+
+    // Handle process events
+    childProcess.on('error', (error: Error) => {
+      console.error(`❌ Local service ${serviceConfig.name} error:`, error);
+    });
+
+    childProcess.on('exit', (code: number | null, signal: string | null) => {
+      if (code !== 0) {
+        console.error(`❌ Local service ${serviceConfig.name} exited with code ${code}, signal ${signal}`);
+      } else {
+        console.log(`✅ Local service ${serviceConfig.name} exited normally`);
+      }
+    });
+
+    // Wait a bit for the process to start
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Only log if the process is still running (avoid logging after tests are done)
+    if (childProcess.pid && !childProcess.killed) {
+      console.log(`✅ Local service ${serviceConfig.name} started (PID: ${childProcess.pid})`);
+    }
+  }
+
+  private async startLocalServiceLegacy(serviceConfig: ServiceConfig): Promise<void> {
     if (!serviceConfig.command) {
       throw new Error(`Local service ${serviceConfig.name} requires command`);
     }
@@ -485,12 +914,11 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     console.log(`   Command: ${serviceConfig.command}`);
     console.log(`   Working directory: ${serviceConfig.workingDirectory || '.'}`);
 
-    // Set environment variables
+    // Set environment variables (without connection strings for legacy mode)
     const env: Record<string, string> = {
       NODE_ENV: 'test',
       TEST_MODE: '1',
       WORKER_ID: this.workerId,
-      ...this.getServiceConnectionStrings(),
       ...serviceConfig.environment,
       ...process.env  // Inherit from parent process
     };
@@ -508,6 +936,22 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
 
     // Store process reference
     this.localProcesses.set(serviceConfig.name, childProcess);
+
+    // Log stdout from the process
+    childProcess.stdout?.on('data', (data: Buffer) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.log(`📱 [${serviceConfig.name}] ${output}`);
+      }
+    });
+
+    // Log stderr from the process
+    childProcess.stderr?.on('data', (data: Buffer) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.error(`🚨 [${serviceConfig.name}] ${output}`);
+      }
+    });
 
     // Handle process events
     childProcess.on('error', (error: Error) => {
@@ -601,7 +1045,10 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     const dbServices = this.getDatabaseServices();
     const dbService = dbServices.length > 0 ? dbServices[0] : undefined;
     
-    const db = new DatabaseManager(dbService, this.workerId);
+    // Get connection strings for database services
+    const connectionStrings = this.getServiceConnectionStrings();
+    
+    const db = new DatabaseManager(dbService, this.workerId, connectionStrings);
     const ctx = new TestContext(this.workerId);
     const clock = new ClockManager();
     const bus = new EventBusManager(this.config, this.workerId);
@@ -644,37 +1091,27 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     }
   }
 
-  private getServiceConnectionStrings(): Record<string, string> {
-    const env: Record<string, string> = {};
+
+  private getDependencyInfo(service: ServiceConfig): Map<string, { host: string; port: number; env: Record<string, string> }> {
+    const dependencyInfo = new Map<string, { host: string; port: number; env: Record<string, string> }>();
     
-    // Use Testcontainers URLs for all services that are already started
-    for (const service of this.config.services) {
-      const container = this.containers.get(service.name);
-      if (!container) {
-        console.log(`⚠️  Service ${service.name} not started yet, skipping connection string`);
-        continue;
-      }
-      
-      const url = this.getServiceUrl(service.name);
-      
-      switch (service.type) {
-        case 'postgres':
-          env.DATABASE_URL = `postgresql://test:test@${url.replace('http://', '')}:5432/test`;
-          env.POSTGRES_URL = env.DATABASE_URL;
-          break;
-        case 'mysql':
-          env.DATABASE_URL = `mysql://test:test@${url.replace('http://', '')}:3306/test`;
-          env.MYSQL_URL = env.DATABASE_URL;
-          break;
-        case 'mongo':
-          env.MONGODB_URL = `mongodb://test:test@${url.replace('http://', '')}:27017/test`;
-          break;
-        case 'redis':
-          env.REDIS_URL = `redis://${url.replace('http://', '')}:6379`;
-          break;
+    if (service.dependsOn) {
+      for (const depName of service.dependsOn) {
+        const depContainer = this.containers.get(depName);
+        if (depContainer) {
+          const depService = this.config.services.find(s => s.name === depName);
+          if (depService) {
+            const port = depContainer.getMappedPort(PortManager.getDatabasePorts()[depService.type] || 3000);
+            dependencyInfo.set(depName, {
+              host: depName, // Use service name as hostname in Docker network
+              port: port,
+              env: depService.environment || {}
+            });
+          }
+        }
       }
     }
     
-    return env;
+    return dependencyInfo;
   }
 }

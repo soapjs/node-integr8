@@ -10,10 +10,10 @@ export class DatabaseManager implements IDatabaseManager {
   private currentSchema?: string;
   private currentDatabase?: string;
 
-  constructor(serviceConfig: ServiceConfig | undefined, workerId: string) {
+  constructor(serviceConfig: ServiceConfig | undefined, workerId: string, connectionStrings: Record<string, string> = {}) {
     this.serviceConfig = serviceConfig;
     this.workerId = workerId;
-    this.stateManager = new DBStateManager(serviceConfig, workerId);
+    this.stateManager = new DBStateManager(serviceConfig, workerId, connectionStrings);
   }
 
   async initialize(): Promise<void> {
@@ -61,6 +61,27 @@ export class DatabaseManager implements IDatabaseManager {
       case 'snapshot':
         await this.stateManager.createSnapshot(name);
         break;
+      default:
+        // Handle hybrid strategies
+        if (dbStrategy === 'hybrid-savepoint-schema') {
+          // Use savepoint for fast rollback, schema for isolation
+          this.currentSavepoint = await this.stateManager.createSavepoint();
+          const hybridSchemaName = `${name}_${this.workerId}`;
+          await this.stateManager.createSchema(hybridSchemaName);
+          this.currentSchema = hybridSchemaName;
+        } else if (dbStrategy === 'hybrid-schema-database') {
+          // Use schema for structure, database for complete isolation
+          const hybridDbName = `${name}_${this.workerId}`;
+          await this.stateManager.createDatabase(hybridDbName);
+          this.currentDatabase = hybridDbName;
+        } else if (dbStrategy === 'transactional-schema') {
+          // Use transactions within schema for better performance
+          await this.stateManager.beginTransaction();
+          const transSchemaName = `${name}_${this.workerId}`;
+          await this.stateManager.createSchema(transSchemaName);
+          this.currentSchema = transSchemaName;
+        }
+        break;
     }
   }
 
@@ -86,6 +107,29 @@ export class DatabaseManager implements IDatabaseManager {
         break;
       case 'snapshot':
         await this.stateManager.restoreSnapshot(name);
+        break;
+      default:
+        // Handle hybrid strategies
+        if (dbStrategy === 'hybrid-savepoint-schema') {
+          if (this.currentSavepoint) {
+            await this.stateManager.rollbackToSavepoint(this.currentSavepoint);
+          }
+          if (this.currentSchema) {
+            await this.stateManager.dropSchema(this.currentSchema);
+            this.currentSchema = undefined;
+          }
+        } else if (dbStrategy === 'hybrid-schema-database') {
+          if (this.currentDatabase) {
+            await this.stateManager.dropDatabase(this.currentDatabase);
+            this.currentDatabase = undefined;
+          }
+        } else if (dbStrategy === 'transactional-schema') {
+          await this.stateManager.rollbackTransaction();
+          if (this.currentSchema) {
+            await this.stateManager.dropSchema(this.currentSchema);
+            this.currentSchema = undefined;
+          }
+        }
         break;
     }
   }

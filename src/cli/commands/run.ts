@@ -4,6 +4,7 @@ import { existsSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Integr8Config } from '../../types';
 import { jestConfigGenerator } from '../../utils/jest-config-generator';
+import { buildFullPath } from '../../utils/url.utils';
 
 export async function runCommand(options: { config: string; testType?: string; pattern?: string; watch: boolean }) {
   console.log(chalk.blue('📋 Loading configuration...'));
@@ -51,29 +52,44 @@ export async function runCommand(options: { config: string; testType?: string; p
     
     if (appService) {
       const appPort = appService.ports?.[0] || 3000;
-      const appUrl = `http://localhost:${appPort}`;
+      
+      // Build health check URL using config
+      let healthEndpoint = '/health'; // default
+      
+      // Check if service has custom health check
+      if (appService.healthcheck?.command) {
+        // Extract URL from health check command (e.g., "curl -f http://localhost:3000/api/v1/health")
+        const healthCheckMatch = appService.healthcheck.command.match(/http:\/\/localhost:\d+(\/[^\s]*)/);
+        if (healthCheckMatch) {
+          healthEndpoint = healthCheckMatch[1];
+        }
+      }
+      
+      // Add URL prefix if configured
+      const url = config.urlPrefix ? buildFullPath(config.urlPrefix, healthEndpoint) : '';
+      const fullHealthUrl = `http://localhost:${appPort}${url}`;
       
       try {
-        const response = await fetch(`${appUrl}/health`, { 
+        const response = await fetch(fullHealthUrl, { 
           method: 'GET',
           signal: AbortSignal.timeout(2000) // 2 second timeout
         });
         
         if (response.ok) {
           environmentRunning = true;
-          console.log(chalk.green('✅ Environment detected, running tests...'));
+          console.log(chalk.green(`✅ Environment detected at ${fullHealthUrl}, running tests...`));
         } else {
-          console.warn(chalk.yellow('⚠️  Environment might not be running. Consider running "integr8 up" first.'));
+          console.warn(chalk.yellow(`⚠️  Environment might not be running (${response.status}). Consider running "integr8 up" first.`));
         }
       } catch (error) {
-        console.warn(chalk.yellow('⚠️  Environment not detected. Consider running "integr8 up" first.'));
+        console.warn(chalk.yellow(`⚠️  Environment not detected at ${fullHealthUrl}. Consider running "integr8 up" first.`));
       }
     }
 
-    // Set environment variable to indicate that environment is already running
-    if (environmentRunning) {
-      process.env.INTEGR8_ENVIRONMENT_RUNNING = 'true';
-    }
+    // Always set environment variables for shared environment mode
+    // This allows the system to detect and reuse existing containers/processes
+    process.env.INTEGR8_ENVIRONMENT_RUNNING = 'true';
+    process.env.INTEGR8_SHARED_ENVIRONMENT = 'true';
 
     // Create a temporary Jest config file for this test run
     const jestConfigPath = resolve(process.cwd(), 'jest.integr8.config.js');
@@ -105,7 +121,12 @@ export async function runCommand(options: { config: string; testType?: string; p
            // Run Jest
            const jestProcess = spawn('npx', ['jest', ...jestArgs], {
              stdio: 'inherit',
-             cwd: process.cwd()
+             cwd: process.cwd(),
+             env: {
+               ...process.env,
+               INTEGR8_ENVIRONMENT_RUNNING: process.env.INTEGR8_ENVIRONMENT_RUNNING,
+               INTEGR8_SHARED_ENVIRONMENT: process.env.INTEGR8_SHARED_ENVIRONMENT
+             }
            });
 
            return new Promise<void>((resolve, reject) => {

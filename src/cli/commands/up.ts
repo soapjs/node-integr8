@@ -5,6 +5,9 @@ import { EnvironmentOrchestrator } from '../../core/environment-orchestrator';
 export async function upCommand(options: { config: string; testType?: string; detach: boolean; composeFile?: string; local?: string[]; fast?: boolean }) {
   console.log(chalk.blue('🚀 Starting test environment...'));
 
+  // Set environment variable to indicate this is a shared environment
+  process.env.INTEGR8_SHARED_ENVIRONMENT = 'true';
+
   try {
     // Auto-detect config file if testType is provided and config is default
     let configPath = options.config;

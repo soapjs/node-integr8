@@ -17,9 +17,7 @@ export class JestConfigGenerator {
     // Prepare template data - only Jest-specific options
     const templateData = {
       testDir,
-      testTimeout: config.testTimeout || 30000,
-      setupTimeout: config.setupTimeout || 10000,
-      teardownTimeout: config.teardownTimeout || 5000
+      testTimeout: config.testTimeout || 30000
     };
 
     // Generate the Jest config

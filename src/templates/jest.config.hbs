@@ -7,10 +7,10 @@ module.exports = {
     '^.+\\.ts$': 'ts-jest',
   },
   testTimeout: {{testTimeout}},
-  setupTimeout: {{setupTimeout}},
-  teardownTimeout: {{teardownTimeout}},
   verbose: true,
   cache: false,
   passWithNoTests: true,
-  collectCoverage: false
+  collectCoverage: false,
+  maxWorkers: 1,
+  forceExit: true
 };

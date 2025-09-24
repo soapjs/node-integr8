@@ -8,11 +8,20 @@ let config: Integr8Config | null = null;
 export async function setupEnvironment(integr8Config: Integr8Config): Promise<void> {
   // Check if environment is already running
   if (process.env.INTEGR8_ENVIRONMENT_RUNNING === 'true') {
+    console.log('🔄 Using existing environment (shared mode)');
     config = integr8Config;
     // Don't start a new orchestrator, just set the config
     return;
   }
   
+  // Check if we're in a Jest worker and environment should be shared
+  if (process.env.JEST_WORKER_ID && process.env.INTEGR8_SHARED_ENVIRONMENT === 'true') {
+    console.log('🔄 Jest worker detected, using shared environment');
+    config = integr8Config;
+    return;
+  }
+  
+  console.log('🚀 Starting new environment for this worker');
   config = integr8Config;
   orchestrator = new EnvironmentOrchestrator(config);
   await orchestrator.start();

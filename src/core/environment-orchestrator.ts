@@ -56,7 +56,12 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
 
   constructor(config: Integr8Config, workerId?: string) {
     this.config = config;
-    this.workerId = workerId || `worker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Only generate workerId if not in shared environment mode
+    if (process.env.INTEGR8_SHARED_ENVIRONMENT === 'true') {
+      this.workerId = 'shared';
+    } else {
+      this.workerId = workerId || `worker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
     
     // Setup cleanup handlers
     this.setupCleanupHandlers();
@@ -294,6 +299,91 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     }
   }
 
+  private async findExistingContainer(serviceName: string): Promise<string | null> {
+    const execAsync = promisify(exec);
+    
+    try {
+      // Look for integr8 containers with the service name
+      const { stdout } = await execAsync(`docker ps --filter "label=integr8.service=${serviceName}" --format "{{.Names}}"`);
+      
+      if (stdout.trim()) {
+        const containerName = stdout.trim().split('\n')[0]; // Take first match
+        console.log(`🔍 Found existing integr8 container: ${containerName} for service ${serviceName}`);
+        return containerName;
+      }
+      
+      return null;
+    } catch (error) {
+      console.log(`⚠️  Failed to check for existing container ${serviceName}:`, error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+
+  private async getContainerDetails(containerName: string): Promise<{ mappedPort: number } | null> {
+    const execAsync = promisify(exec);
+    
+    try {
+      // Get container port mapping
+      const { stdout } = await execAsync(`docker port ${containerName}`);
+      
+      if (stdout.trim()) {
+        // Parse port mapping (e.g., "5432/tcp -> 0.0.0.0:32774")
+        const lines = stdout.trim().split('\n');
+        for (const line of lines) {
+          const match = line.match(/(\d+)\/tcp -> 0\.0\.0\.0:(\d+)/);
+          if (match) {
+            const internalPort = parseInt(match[1]);
+            const mappedPort = parseInt(match[2]);
+            console.log(`📍 Container ${containerName} port mapping: ${internalPort} -> ${mappedPort}`);
+            return { mappedPort };
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.log(`⚠️  Failed to get container details for ${containerName}:`, error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+
+  private async checkLocalServiceRunning(serviceConfig: ServiceConfig): Promise<boolean> {
+    if (!serviceConfig.ports || serviceConfig.ports.length === 0) {
+      return false;
+    }
+
+    const port = serviceConfig.ports[0];
+    
+    // Build health check URL using config
+    let healthEndpoint = '/health'; // default
+    
+    // Check if service has custom health check
+    if (serviceConfig.healthcheck?.command) {
+      // Extract URL from health check command (e.g., "curl -f http://localhost:3000/api/v1/health")
+      const healthCheckMatch = serviceConfig.healthcheck.command.match(/http:\/\/localhost:\d+(\/[^\s]*)/);
+      if (healthCheckMatch) {
+        healthEndpoint = healthCheckMatch[1];
+      }
+    }
+    
+    // Add URL prefix if configured
+    const urlPrefix = this.config.urlPrefix || '';
+    const fullHealthUrl = `http://localhost:${port}${urlPrefix}${healthEndpoint}`;
+    
+    try {
+      // Try to connect to the service port
+      const response = await fetch(fullHealthUrl, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000) // 2 second timeout
+      });
+      
+      return response.ok;
+    } catch (error) {
+      // Service not running or not responding
+      return false;
+    }
+  }
+
   private getServiceConnectionStrings(): Record<string, string> {
     const connectionStrings: Record<string, string> = {};
     
@@ -489,7 +579,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
       await this.startInfrastructureServices();
       
       // Generate connection strings
-      const connectionStrings = this.getServiceConnectionStrings();
+      const connectionStrings = await this.getServiceConnectionStrings();
       
       // Start application services with connection strings
       await this.startApplicationServices(connectionStrings);
@@ -592,8 +682,30 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     
     // Handle local mode for service type
     if (serviceConfig.type === 'service' && serviceConfig.mode === 'local') {
+      // Check if we should reuse existing local service (shared mode)
+      if (process.env.INTEGR8_SHARED_ENVIRONMENT === 'true') {
+        console.log(`🔄 Shared environment mode: checking if local service ${serviceConfig.name} is already running`);
+        const isRunning = await this.checkLocalServiceRunning(serviceConfig);
+        if (isRunning) {
+          console.log(`✅ Local service ${serviceConfig.name} is already running, reusing it`);
+          return;
+        }
+      }
+      
       await this.startLocalServiceLegacy(serviceConfig);
       return;
+    }
+
+    // Check if we should reuse existing environment (shared mode)
+    if (process.env.INTEGR8_SHARED_ENVIRONMENT === 'true') {
+      console.log(`🔄 Shared environment mode: checking for existing container for ${serviceConfig.name}`);
+      const existingContainerName = await this.findExistingContainer(serviceConfig.name);
+      if (existingContainerName) {
+        console.log(`✅ Reusing existing container: ${existingContainerName} for service ${serviceConfig.name}`);
+        // In shared mode, we don't need to store the container reference
+        // The existing container will be used by the application
+        return;
+      }
     }
     
     let container: GenericContainer;
@@ -607,14 +719,20 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         container = new GenericContainer('postgres:15-alpine')
           .withEnvironment(postgresEnv)
           .withExposedPorts(5432)
-          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('postgres', 5432));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('postgres', 5432))
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'postgres' });
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
         break;
         
@@ -626,14 +744,20 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         container = new GenericContainer('mysql:8.0')
           .withEnvironment(mysqlEnv)
           .withExposedPorts(3306)
-          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('mysql', 3306));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('mysql', 3306))
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'mysql' });
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
         break;
         
@@ -645,14 +769,20 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         container = new GenericContainer('mongo:7.0')
           .withEnvironment(mongoEnv)
           .withExposedPorts(27017)
-          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('mongo', 27017));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('mongo', 27017))
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'mongo' });
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
         break;
         
@@ -664,28 +794,40 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         container = new GenericContainer('redis:7-alpine')
           .withEnvironment(redisEnv)
           .withExposedPorts(6379)
-          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('redis', 6379));
+          .withWaitStrategy(HealthCheckManager.getHybridHealthCheck('redis', 6379))
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'redis' });
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
         break;
         
       case 'mailhog':
         container = new GenericContainer('mailhog/mailhog:latest')
           .withExposedPorts(1025, 8025)
-          .withWaitStrategy(Wait.forHttp('/', 8025));
+          .withWaitStrategy(Wait.forHttp('/', 8025))
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'mailhog' });
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
         break;
         
@@ -698,7 +840,8 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         const appEnv = EnvironmentManager.generateEnvironmentVars(serviceConfig, dependencyInfo);
         
         container = new GenericContainer(serviceConfig.image)
-          .withEnvironment(appEnv);
+          .withEnvironment(appEnv)
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'service' });
         
         // Set ports
         if (serviceConfig.ports && serviceConfig.ports.length > 0) {
@@ -719,11 +862,16 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         }
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
         break;
         
@@ -731,14 +879,20 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
         if (!serviceConfig.image) {
           throw new Error(`Custom service ${serviceConfig.name} requires image`);
         }
-        container = new GenericContainer(serviceConfig.image);
+        container = new GenericContainer(serviceConfig.image)
+          .withLabels({ 'integr8.service': serviceConfig.name, 'integr8.type': 'custom' });
         
         if (serviceConfig.containerName) {
-          // Add worker ID to container name to avoid conflicts
-          const uniqueContainerName = `${serviceConfig.containerName}-${this.workerId}`;
+          let containerName = serviceConfig.containerName;
+          
+          // Only add worker ID if not in shared environment mode
+          if (process.env.INTEGR8_SHARED_ENVIRONMENT !== 'true') {
+            containerName = `${serviceConfig.containerName}-${this.workerId}`;
+          }
+          
           // Remove any existing container with the same name
-          await this.removeConflictingContainer(uniqueContainerName);
-          container = container.withName(uniqueContainerName);
+          await this.removeConflictingContainer(containerName);
+          container = container.withName(containerName);
         }
     }
     
@@ -1046,7 +1200,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
     const dbService = dbServices.length > 0 ? dbServices[0] : undefined;
     
     // Get connection strings for database services
-    const connectionStrings = this.getServiceConnectionStrings();
+    const connectionStrings = await this.getServiceConnectionStrings();
     
     const db = new DatabaseManager(dbService, this.workerId, connectionStrings);
     const ctx = new TestContext(this.workerId);
@@ -1075,7 +1229,7 @@ export class EnvironmentOrchestrator implements IEnvironmentOrchestrator {
   }
 
   private async setServiceConnectionStrings(): Promise<void> {
-    const connectionStrings = this.getServiceConnectionStrings();
+    const connectionStrings = await this.getServiceConnectionStrings();
     
     // Update environment variables for service containers
     for (const service of this.config.services) {

@@ -6,6 +6,7 @@ import { Integr8Config, ServiceConfig } from '../../types';
 import { PromptsConfig, InitAnswers } from '../types';
 import { PROMPTS } from '../prompts';
 import { join } from 'path';
+import { buildFullPath } from '../../utils/url.utils';
 
 export class InteractiveInit {
   private prompts: PromptsConfig;
@@ -552,8 +553,8 @@ export class InteractiveInit {
     const { TestTemplateGenerator } = require('../../core/test-template-generator');
     
     const endpointPath = this.answers.readinessPath;
-    const urlPrefix = this.answers.urlPrefix ? `/${this.answers.urlPrefix}` : '';
-    const fullPath = this.buildFullPath(urlPrefix, endpointPath);
+    const urlPrefix = this.answers.urlPrefix || '';
+    const fullPath = buildFullPath(urlPrefix, endpointPath);
     const endpointName = this.extractEndpointName(endpointPath);
     
     // Create a mock route info for the readiness endpoint
@@ -592,35 +593,6 @@ export class InteractiveInit {
 
     const template = generator.generateSampleTest();
     return template.content;
-  }
-
-  /**
-   * Builds a proper full path by ensuring correct URL formatting
-   * Handles cases like:
-   * - "ping" -> "/ping"
-   * - "/health" -> "/health" 
-   * - "health/" -> "/health"
-   * - "/health/status" -> "/health/status"
-   */
-  private buildFullPath(urlPrefix: string, endpointPath: string): string {
-    // Normalize endpoint path - ensure it starts with / and doesn't end with /
-    let normalizedPath = endpointPath.trim();
-    
-    // Add leading slash if missing
-    if (!normalizedPath.startsWith('/')) {
-      normalizedPath = '/' + normalizedPath;
-    }
-    
-    // Remove trailing slash if present (except for root path)
-    if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
-      normalizedPath = normalizedPath.slice(0, -1);
-    }
-    
-    // Combine with prefix
-    const fullPath = urlPrefix + normalizedPath;
-    
-    // Ensure we don't have double slashes
-    return fullPath.replace(/\/+/g, '/');
   }
 
   /**

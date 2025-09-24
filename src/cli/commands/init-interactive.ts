@@ -112,12 +112,18 @@ export class InteractiveInit {
   }
 
   private async askTestConfig(): Promise<void> {
-    const { mainServiceName, readinessEndpoint, readinessPath, urlPrefix } = await inquirer.prompt([
+    const { mainServiceName, urlPrefix, readinessEndpoint, readinessPath } = await inquirer.prompt([
       {
         type: 'input',
         name: 'mainServiceName',
         message: this.prompts.testConfig.mainServiceName.question,
         default: this.prompts.testConfig.mainServiceName.default
+      },
+      {
+        type: 'input',
+        name: 'urlPrefix',
+        message: this.prompts.testConfig.urlPrefix.question,
+        default: this.prompts.testConfig.urlPrefix.default
       },
       {
         type: 'confirm',
@@ -129,14 +135,18 @@ export class InteractiveInit {
         type: 'input',
         name: 'readinessPath',
         message: this.prompts.testConfig.readinessPath.question,
-        default: this.prompts.testConfig.readinessPath.default,
+        default: (answers: any) => {
+          const basePath = this.prompts.testConfig.readinessPath.default;
+          if (answers.urlPrefix && answers.urlPrefix.trim()) {
+            const prefix = answers.urlPrefix.trim();
+            // Ensure prefix starts with / and doesn't end with /
+            const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
+            const cleanPrefix = normalizedPrefix.endsWith('/') ? normalizedPrefix.slice(0, -1) : normalizedPrefix;
+            return `${cleanPrefix}${basePath}`;
+          }
+          return basePath;
+        },
         when: (answers: any) => answers.readinessEndpoint
-      },
-      {
-        type: 'input',
-        name: 'urlPrefix',
-        message: this.prompts.testConfig.urlPrefix.question,
-        default: this.prompts.testConfig.urlPrefix.default
       }
     ]);
 

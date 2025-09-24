@@ -39,6 +39,9 @@ export interface ServiceConfig {
   
   // Logging control for debugging
   logging?: 'debug' | 'error' | 'log' | 'info' | 'warn' | boolean;
+  
+  // Authentication configuration (applies to application services only, not database services)
+  auth?: AuthConfig;
 }
 
 export interface EnvironmentMapping {
@@ -113,8 +116,8 @@ export interface IEnvironmentContext {
 }
 
 export interface ITestContext {
-  override: OverrideManager;
-  snapshot: SnapshotManager;
+  override: IOverrideManager;
+  snapshot: ISnapshotManager;
   workerId: string;
   scenarioId: string;
 }
@@ -127,6 +130,19 @@ export interface IHttpClient {
   delete(url: string, options?: Partial<HttpRequestOptions>): Promise<HttpResponse>;
   patch(url: string, data?: any, options?: Partial<HttpRequestOptions>): Promise<HttpResponse>;
 }
+
+export interface IAuthOverrideBuilder extends IOverrideBuilder {
+  withUsers(...users: any[]): Promise<void>;
+  withRoles(...roles: string[]): Promise<void>;
+  withPermissions(permissions: string[]): Promise<void>;
+  withMockAuth(config: AuthOverrideConfig): Promise<void>;
+  withProfile(profileName: string): Promise<void>;
+  withProfile(profile: AuthProfile): Promise<void>;
+  asAdmin(): Promise<void>;
+  asUser(): Promise<void>;
+  asGuest(): Promise<void>;
+}
+
 
 export interface HttpRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -159,22 +175,25 @@ export interface Transaction {
   rollback(): Promise<void>;
 }
 
-export interface OverrideManager {
-  module(moduleName: string): OverrideBuilder;
-  service(serviceName: string): OverrideBuilder;
-  repository(repositoryName: string): OverrideBuilder;
-  dataSource(dataSourceName: string): OverrideBuilder;
-  provider(providerName: string): OverrideBuilder;
+export interface IOverrideManager {
+  module(moduleName: string): IOverrideBuilder;
+  middleware(middlewareName: string): IOverrideBuilder;
+  service(serviceName: string): IOverrideBuilder;
+  repository(repositoryName: string): IOverrideBuilder;
+  dataSource(dataSourceName: string): IOverrideBuilder;
+  provider(providerName: string): IOverrideBuilder;
+  // Auth-specific helpers
+  auth(middlewareName?: string): IAuthOverrideBuilder;
   clear(): Promise<void>;
 }
 
-export interface OverrideBuilder {
+export interface IOverrideBuilder {
   with(implementation: any): Promise<void>;
   withMock(mockFn: (...args: any[]) => any): Promise<void>;
   withValue(value: any): Promise<void>;
 }
 
-export interface SnapshotManager {
+export interface ISnapshotManager {
   create(name: string): Promise<void>;
   restore(name: string): Promise<void>;
   list(): Promise<string[]>;
@@ -231,7 +250,7 @@ export interface DBStateManager {
 export interface Adapter {
   name: string;
   initialize(config: AdapterConfig): Promise<void>;
-  setupOverrides(overrideManager: OverrideManager): Promise<void>;
+  applyOverride(type: string, name: string, implementation: any): Promise<void>;
   teardown(): Promise<void>;
 }
 
@@ -266,4 +285,46 @@ export interface PerformanceMetrics {
   timestamp: number;
   workerId: string;
   strategy: string;
+}
+
+export interface AuthConfig {
+  // Override configurations for test environment (bypasses real authentication)
+  override?: AuthOverrideConfig[];
+  // Authentication profiles for stage/prod environments (uses real credentials)
+  profiles?: AuthProfile[];
+  // Default profile to use when no specific profile is specified
+  defaultProfile?: string;
+}
+
+export interface AuthOverrideConfig {
+  name: string;
+  middleware?: string;
+  mockUser?: any;
+  mockPermissions?: string[];
+  condition?: (context: any) => boolean; // When to use this override
+}
+
+export interface AuthProfile {
+  name: string;
+  type: 'jwt' | 'oauth2' | 'apikey' | 'basic' | 'session';
+  
+  // OAuth2 configuration
+  clientId?: string;
+  clientSecret?: string;
+  tokenUrl?: string;
+  scope?: string;
+  
+  // JWT configuration
+  token?: string;
+  
+  // API Key configuration
+  apiKey?: string;
+  headerName?: string;
+  
+  // Basic Auth configuration
+  username?: string;
+  password?: string;
+  
+  // Session configuration
+  cookies?: Record<string, string>;
 }

@@ -8,7 +8,10 @@ import {
   VolumeConfig,
   HealthCheckConfig,
   TestModeConfig,
-  EnvironmentMapping
+  EnvironmentMapping,
+  AuthConfig,
+  AuthOverrideConfig,
+  AuthProfile
 } from '../types';
 
 export function createConfig(config: Partial<Integr8Config>): Integr8Config {
@@ -279,6 +282,20 @@ export function createExpressAdapter(): AdapterConfig {
   };
 }
 
+export function createNestJSAdapter(config?: Record<string, any>): AdapterConfig {
+  return {
+    type: 'nestjs',
+    config: {
+      enableTestModule: true,
+      enableTestMiddleware: true,
+      enableTestGuard: true,
+      enableTestInterceptor: true,
+      enableTestPipe: true,
+      ...config
+    }
+  };
+}
+
 export function createNestAdapter(config?: Record<string, any>): AdapterConfig {
   return {
     type: 'nest',
@@ -486,6 +503,7 @@ export function createAppService(name: string = 'app', options?: Partial<Service
     environment: options?.environment,
     healthcheck: options?.healthcheck,
     logging: options?.logging || 'info',
+    auth: options?.auth,
     ...options
   };
 }
@@ -663,4 +681,160 @@ export function disableLogging(): { logging: false } {
 
 export function enableAllLogging(): { logging: true } {
   return { logging: true };
+}
+
+// Authentication configuration helpers
+export function createAuthConfig(options?: Partial<AuthConfig>): AuthConfig {
+  return {
+    override: options?.override || [],
+    profiles: options?.profiles || [],
+    defaultProfile: options?.defaultProfile
+  };
+}
+
+// Auth override helpers
+export function createAuthOverride(name: string, options?: Partial<AuthOverrideConfig>): AuthOverrideConfig {
+  return {
+    name,
+    middleware: options?.middleware,
+    mockUser: options?.mockUser,
+    mockPermissions: options?.mockPermissions,
+    condition: options?.condition
+  };
+}
+
+// Common auth override presets
+export function createMockAdminOverride(middleware?: string): AuthOverrideConfig {
+  return createAuthOverride('mock-admin', {
+    middleware: middleware || 'auth-middleware',
+    mockUser: { 
+      id: 1, 
+      role: 'admin',
+      permissions: ['*'],
+      email: 'admin@test.com'
+    },
+    mockPermissions: ['read', 'write', 'delete', 'admin']
+  });
+}
+
+export function createMockUserOverride(middleware?: string): AuthOverrideConfig {
+  return createAuthOverride('mock-user', {
+    middleware: middleware || 'auth-middleware',
+    mockUser: { 
+      id: 2, 
+      role: 'user',
+      permissions: ['read'],
+      email: 'user@test.com'
+    },
+    mockPermissions: ['read']
+  });
+}
+
+export function createMockGuestOverride(middleware?: string): AuthOverrideConfig {
+  return createAuthOverride('mock-guest', {
+    middleware: middleware || 'auth-middleware',
+    mockUser: { 
+      id: null, 
+      role: 'guest',
+      permissions: [],
+      email: null
+    },
+    mockPermissions: []
+  });
+}
+
+// Auth profile helpers
+export function createAuthProfile(name: string, options: Partial<AuthProfile>): AuthProfile {
+  return {
+    name,
+    type: options.type || 'jwt',
+    clientId: options.clientId,
+    clientSecret: options.clientSecret,
+    tokenUrl: options.tokenUrl,
+    scope: options.scope,
+    token: options.token,
+    apiKey: options.apiKey,
+    headerName: options.headerName,
+    username: options.username,
+    password: options.password,
+    cookies: options.cookies
+  };
+}
+
+// Common auth profile presets
+export function createJWTProfile(name: string, token: string): AuthProfile {
+  return createAuthProfile(name, {
+    type: 'jwt',
+    token
+  });
+}
+
+export function createOAuth2Profile(
+  name: string,
+  clientId: string,
+  clientSecret: string,
+  tokenUrl: string,
+  scope?: string
+): AuthProfile {
+  return createAuthProfile(name, {
+    type: 'oauth2',
+    clientId,
+    clientSecret,
+    tokenUrl,
+    scope
+  });
+}
+
+export function createApiKeyProfile(name: string, apiKey: string, headerName: string = 'X-API-Key'): AuthProfile {
+  return createAuthProfile(name, {
+    type: 'apikey',
+    apiKey,
+    headerName
+  });
+}
+
+export function createBasicAuthProfile(name: string, username: string, password: string): AuthProfile {
+  return createAuthProfile(name, {
+    type: 'basic',
+    username,
+    password
+  });
+}
+
+export function createSessionProfile(name: string, cookies: Record<string, string>): AuthProfile {
+  return createAuthProfile(name, {
+    type: 'session',
+    cookies
+  });
+}
+
+// Combined auth configuration helpers
+export function createTestAuthConfig(): AuthConfig {
+  return createAuthConfig({
+    override: [
+      createMockAdminOverride(),
+      createMockUserOverride(),
+      createMockGuestOverride()
+    ],
+    defaultProfile: 'mock-user'
+  });
+}
+
+export function createStageAuthConfig(profiles: AuthProfile[]): AuthConfig {
+  return createAuthConfig({
+    profiles,
+    defaultProfile: profiles[0]?.name
+  });
+}
+
+export function createMixedAuthConfig(
+  overrides: AuthOverrideConfig[],
+  profiles: AuthProfile[],
+  defaultProfile?: string
+): AuthConfig {
+  return createAuthConfig({
+    override: overrides,
+    profiles,
+    defaultProfile
+  });
 }

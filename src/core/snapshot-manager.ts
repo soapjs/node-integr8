@@ -1,4 +1,4 @@
-import { SnapshotManager as ISnapshotManager } from '../types';
+import { ISnapshotManager as ISnapshotManager } from '../types';
 
 export class SnapshotManagerImpl implements ISnapshotManager {
   private workerId: string;

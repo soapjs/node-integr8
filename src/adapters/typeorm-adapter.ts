@@ -11,14 +11,59 @@ export class TypeORMAdapter implements Adapter {
     // The adapter would add middleware to handle test overrides
   }
 
-  async setupOverrides(overrideManager: any): Promise<void> {
-    // Set up the override endpoint for TypeORM
-    console.log('Setting up TypeORM overrides');
+  async applyOverride(type: string, name: string, implementation: any): Promise<void> {
+    const key = `${type}:${name}`;
+    this.overrides.set(key, implementation);
+    
+    // Apply the override to TypeORM/NestJS
+    await this.applyOverrideToTypeORM(type, name, implementation);
+    
+    console.log(`TypeORM adapter applied override: ${key}`);
   }
 
   async teardown(): Promise<void> {
     console.log('Tearing down TypeORM adapter');
     this.overrides.clear();
+  }
+
+  private async applyOverrideToTypeORM(type: string, name: string, implementation: any): Promise<void> {
+    // Apply the override to TypeORM/NestJS based on type
+    switch (type) {
+      case 'repository':
+        await this.overrideRepository(name, implementation);
+        break;
+      case 'service':
+        await this.overrideService(name, implementation);
+        break;
+      case 'provider':
+        await this.overrideProvider(name, implementation);
+        break;
+      case 'dataSource':
+        await this.overrideDataSource(name, implementation);
+        break;
+      default:
+        console.log(`TypeORM adapter: Unknown override type '${type}'`);
+    }
+  }
+
+  private async overrideRepository(name: string, implementation: any): Promise<void> {
+    // Override repository in TypeORM/NestJS
+    console.log(`TypeORM adapter: Overriding repository '${name}'`);
+  }
+
+  private async overrideService(name: string, implementation: any): Promise<void> {
+    // Override service in NestJS
+    console.log(`TypeORM adapter: Overriding service '${name}'`);
+  }
+
+  private async overrideProvider(name: string, implementation: any): Promise<void> {
+    // Override provider in NestJS
+    console.log(`TypeORM adapter: Overriding provider '${name}'`);
+  }
+
+  private async overrideDataSource(name: string, implementation: any): Promise<void> {
+    // Override data source in TypeORM
+    console.log(`TypeORM adapter: Overriding data source '${name}'`);
   }
 
   // Static method to create middleware that can be added to existing NestJS apps

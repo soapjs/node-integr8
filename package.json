@@ -1,6 +1,6 @@
 {
   "name": "@soapjs/integr8",
-  "version": "0.0.59",
+  "version": "0.1.0",
   "description": "Framework-agnostic integration testing with Testcontainers",
   "homepage": "https://docs.soapjs.com",
   "repository": "https://github.com/soapjs/node-integr8",
@@ -10,7 +10,7 @@
     "integr8": "dist/cli/index.js"
   },
   "scripts": {
-    "build": "npm run clean && tsc && npm run build-templates",
+    "build": "npm run clean && tsc --project tsconfig.build.json && npm run build-templates",
     "build-templates": "mkdir -p dist/templates && cp -r src/templates/**/*.hbs dist/templates/",
     "dev": "tsc --watch",
     "test": "jest",

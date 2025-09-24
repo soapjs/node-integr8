@@ -1,5 +1,5 @@
 import { EnvironmentOrchestrator } from './core/environment-orchestrator';
-import { Integr8Config, ScenarioDefinition, IEnvironmentContext } from './types';
+import { Integr8Config, ScenarioDefinition, IEnvironmentContext, AuthProfile, AuthOverrideConfig } from './types';
 
 // Global state for the scenario runner
 let orchestrator: EnvironmentOrchestrator | null = null;
@@ -262,6 +262,24 @@ export function getEnvironmentContext(): IEnvironmentContext {
             withMock: async (mock: any) => {},
             with: async (value: any) => {},
             withValue: async (value: any) => {}
+          }),
+          middleware: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {}
+          }),
+          auth: (name: string) => ({
+            withMock: async (mock: any) => {},
+            with: async (value: any) => {},
+            withValue: async (value: any) => {},
+            withUsers: async (...users: any[]) => {},
+            withRoles: async (...roles: string[]) => {},
+            withPermissions: async (permissions: string[]) => {},
+            withMockAuth: async (config: AuthOverrideConfig) => {},
+            withProfile: async (profile: AuthProfile | string) => {},
+            asAdmin: async () => {},
+            asUser: async () => {},
+            asGuest: async () => {}
           }),
           clear: async () => {}
         },

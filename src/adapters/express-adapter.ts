@@ -12,11 +12,16 @@ export class ExpressAdapter implements Adapter {
     // The adapter would add middleware to handle test overrides
   }
 
-  async setupOverrides(overrideManager: any): Promise<void> {
-    // Set up the override endpoint
+  async applyOverride(type: string, name: string, implementation: any): Promise<void> {
+    const key = `${type}:${name}`;
+    this.overrides.set(key, implementation);
+    
+    // Apply the override to the Express app
     if (this.app) {
-      this.app.use('/__test__', this.createTestMiddleware());
+      await this.applyOverrideToExpress(type, name, implementation);
     }
+    
+    console.log(`Express adapter applied override: ${key}`);
   }
 
   async teardown(): Promise<void> {
@@ -56,13 +61,39 @@ export class ExpressAdapter implements Adapter {
     return router;
   }
 
-  private async applyOverride(type: string, name: string, implementation: any): Promise<void> {
-    const key = `${type}:${name}`;
-    this.overrides.set(key, implementation);
-    
-    // This would actually override the dependency in the Express app
-    // Implementation would depend on how the app is structured
-    console.log(`Applied override: ${key}`);
+  private async applyOverrideToExpress(type: string, name: string, implementation: any): Promise<void> {
+    // Apply the override to the Express app based on type
+    switch (type) {
+      case 'middleware':
+        await this.overrideMiddleware(name, implementation);
+        break;
+      case 'service':
+        await this.overrideService(name, implementation);
+        break;
+      case 'provider':
+        await this.overrideProvider(name, implementation);
+        break;
+      default:
+        console.log(`Express adapter: Unknown override type '${type}'`);
+    }
+  }
+
+  private async overrideMiddleware(name: string, implementation: any): Promise<void> {
+    if (this.app) {
+      // Replace middleware in Express app
+      // This would need to be implemented based on how the app is structured
+      console.log(`Express adapter: Overriding middleware '${name}'`);
+    }
+  }
+
+  private async overrideService(name: string, implementation: any): Promise<void> {
+    // Override service in Express app
+    console.log(`Express adapter: Overriding service '${name}'`);
+  }
+
+  private async overrideProvider(name: string, implementation: any): Promise<void> {
+    // Override provider in Express app
+    console.log(`Express adapter: Overriding provider '${name}'`);
   }
 
   // Static method to create middleware that can be added to existing Express apps

@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import chalk from 'chalk';
-import ora from 'ora';
 import { existsSync } from 'fs';
 import { initCommand } from './commands/init';
 import { upCommand } from './commands/up';

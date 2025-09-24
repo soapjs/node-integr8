@@ -229,7 +229,7 @@ export interface IEnvironmentOrchestrator {
   getContext(): IEnvironmentContext;
 }
 
-export interface DBStateManager {
+export interface IDBStateManager {
   initialize(): Promise<void>;
   createSavepoint(): Promise<string>;
   rollbackToSavepoint(savepointId: string): Promise<void>;

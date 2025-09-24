@@ -1,4 +1,4 @@
-import { DBStateManager as IDBStateManager, ServiceConfig, DBStrategy, SeedConfig, PerformanceMetrics } from '../types';
+import { IDBStateManager, ServiceConfig, DBStrategy, SeedConfig, PerformanceMetrics } from '../types';
 import { TypeORMAdapter } from '../adapters/typeorm-adapter';
 
 interface SavepointInfo {

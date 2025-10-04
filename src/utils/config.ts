@@ -1,88 +1,93 @@
 import { 
   Integr8Config, 
   ServiceConfig, 
+  DatabaseConfig,
+  MessagingConfig,
   SeedConfig, 
   AdapterConfig, 
-  SeedScenario,
   TestScenario,
   VolumeConfig,
-  HealthCheckConfig,
-  TestModeConfig,
-  EnvironmentMapping,
+  ReadinessConfig,
+  ServiceTestModeConfig,
+  DatabaseEnvMapping,
   AuthConfig,
   AuthOverrideConfig,
-  AuthProfile
+  AuthProfile,
+  HttpConfig
 } from '../types';
 
 export function createConfig(config: Partial<Integr8Config>): Integr8Config {
   const defaultConfig: Integr8Config = {
     services: [],
+    databases: [],
+    messaging: [],
     testType: 'api',
-    testDirectory: './tests',
+    testDir: './integr8/tests/api',
     testFramework: 'jest',
-    testMode: {
-      controlPort: 3001,
-      overrideEndpoint: '/__test__/override',
-      enableFakeTimers: true
-    },
     testTimeout: 30000,      // 30 seconds default
     setupTimeout: 10000,     // 10 seconds default
     teardownTimeout: 5000,   // 5 seconds default
-    urlPrefix: '/api/v1',
-    adapters: []
+    endpointDiscovery: {
+      command: 'npm run list-routes',
+      timeout: 10000
+    }
   };
 
   return {
     ...defaultConfig,
     ...config,
     services: config.services || [],
-    testMode: config.testMode ? {
-      ...defaultConfig.testMode,
-      ...config.testMode
-    } : defaultConfig.testMode,
-    adapters: config.adapters || []
+    databases: config.databases || [],
+    messaging: config.messaging || []
   };
 }
 
-export function createPostgresService(name: string = 'postgres', options?: Partial<ServiceConfig>): ServiceConfig {
+export function createPostgresDatabase(name: string = 'postgres', options?: Partial<DatabaseConfig>): DatabaseConfig {
   return {
     name,
+    category: 'database',
     type: 'postgres',
-    mode: 'container',
-    image: 'postgres:15-alpine',
-    ports: [5432],
+    strategy: options?.strategy || 'schema',
+    isolation: options?.isolation || 'schema',
+    container: {
+      image: 'postgres:15-alpine',
+      containerName: options?.container?.containerName || `${name}-db`,
+      ports: [{ host: 5432, container: 5432 }],
+      volumes: options?.container?.volumes || []
+    },
     environment: {
       POSTGRES_DB: 'test',
       POSTGRES_USER: 'test',
       POSTGRES_PASSWORD: 'test',
       ...options?.environment
     },
-    healthcheck: {
+    readiness: {
       command: 'pg_isready -U test -d test',
       interval: 1000,
       timeout: 30000,
       retries: 3
     },
-    containerName: options?.containerName || `${name}-db`,
-    dbStrategy: options?.dbStrategy || 'schema',
-    parallelIsolation: options?.parallelIsolation || 'schema',
     adapter: options?.adapter,
-    volumes: options?.volumes,
     dependsOn: options?.dependsOn,
-    workingDirectory: options?.workingDirectory,
     seed: options?.seed,
     logging: options?.logging || 'info',
     ...options
   };
 }
 
-export function createMysqlService(name: string = 'mysql', options?: Partial<ServiceConfig>): ServiceConfig {
-return {
+export function createMysqlDatabase(name: string = 'mysql', options?: Partial<DatabaseConfig>): DatabaseConfig {
+  return {
     name,
+    category: 'database',
     type: 'mysql',
-    mode: 'container',
-    image: 'mysql:8.0',
-    ports: [3306],
+    strategy: options?.strategy || 'schema',
+    isolation: options?.isolation || 'schema',
+    container: {
+      image: 'mysql:8.0',
+      containerName: options?.container?.containerName || `${name}-db`,
+      ports: [{ host: 3306, container: 3306 }],
+      volumes: options?.container?.volumes || []
+    },
     environment: {
       MYSQL_ROOT_PASSWORD: 'test',
       MYSQL_DATABASE: 'test',
@@ -90,75 +95,74 @@ return {
       MYSQL_PASSWORD: 'test',
       ...options?.environment
     },
-    healthcheck: {
+    readiness: {
       command: 'mysqladmin ping -h localhost',
       interval: 1000,
       timeout: 30000,
       retries: 3
     },
-    containerName: options?.containerName || `${name}-db`,
-    dbStrategy: options?.dbStrategy || 'schema',
-    parallelIsolation: options?.parallelIsolation || 'schema',
     adapter: options?.adapter,
-    volumes: options?.volumes,
     dependsOn: options?.dependsOn,
-    workingDirectory: options?.workingDirectory,
     seed: options?.seed,
     logging: options?.logging || 'info',
     ...options
   };
 }
 
-export function createMongoService(name: string = 'mongo', options?: Partial<ServiceConfig>): ServiceConfig {
+export function createMongoDatabase(name: string = 'mongo', options?: Partial<DatabaseConfig>): DatabaseConfig {
   return {
     name,
+    category: 'database',
     type: 'mongo',
-    mode: 'container',
-    image: 'mongo:7.0',
-    ports: [27017],
+    strategy: options?.strategy || 'schema',
+    isolation: options?.isolation || 'schema',
+    container: {
+      image: 'mongo:7.0',
+      containerName: options?.container?.containerName || `${name}-db`,
+      ports: [{ host: 27017, container: 27017 }],
+      volumes: options?.container?.volumes || []
+    },
     environment: {
       MONGO_INITDB_ROOT_USERNAME: 'test',
       MONGO_INITDB_ROOT_PASSWORD: 'test',
       MONGO_INITDB_DATABASE: 'test',
       ...options?.environment
     },
-    healthcheck: {
+    readiness: {
       command: 'mongosh --eval "db.adminCommand(\'ping\')"',
       interval: 1000,
       timeout: 30000,
       retries: 3
     },
-    containerName: options?.containerName || `${name}-db`,
-    dbStrategy: options?.dbStrategy || 'schema',
-    parallelIsolation: options?.parallelIsolation || 'schema',
     adapter: options?.adapter,
-    volumes: options?.volumes,
     dependsOn: options?.dependsOn,
-    workingDirectory: options?.workingDirectory,
     seed: options?.seed,
     logging: options?.logging || 'info',
     ...options
   };
 }
 
-export function createRedisService(name: string = 'redis', options?: Partial<ServiceConfig>): ServiceConfig {
+export function createRedisDatabase(name: string = 'redis', options?: Partial<DatabaseConfig>): DatabaseConfig {
   return {
     name,
+    category: 'database',
     type: 'redis',
-    mode: 'container',
-    image: 'redis:7-alpine',
-    ports: [6379],
-    healthcheck: {
+    strategy: options?.strategy || 'schema',
+    isolation: options?.isolation || 'schema',
+    container: {
+      image: 'redis:7-alpine',
+      containerName: options?.container?.containerName || `${name}-cache`,
+      ports: [{ host: 6379, container: 6379 }],
+      volumes: options?.container?.volumes || []
+    },
+    readiness: {
       command: 'redis-cli ping',
       interval: 1000,
       timeout: 30000,
       retries: 3
     },
-    containerName: options?.containerName || `${name}-cache`,
     adapter: options?.adapter,
-    volumes: options?.volumes,
     dependsOn: options?.dependsOn,
-    workingDirectory: options?.workingDirectory,
     environment: options?.environment,
     logging: options?.logging || 'info',
     ...options
@@ -168,24 +172,204 @@ export function createRedisService(name: string = 'redis', options?: Partial<Ser
 export function createMailhogService(name: string = 'mailhog', options?: Partial<ServiceConfig>): ServiceConfig {
   return {
     name,
+    category: 'service',
     type: 'mailhog',
-    mode: 'container',
-    image: 'mailhog/mailhog:latest',
-    ports: [1025, 8025],
-    healthcheck: {
+    local: options?.local || {
+      command: 'mailhog',
+      cwd: '.',
+      args: []
+    },
+    http: {
+      baseUrl: 'http://localhost',
+      port: 8025,
+      prefix: 'api/v2'
+    },
+    container: {
+      image: 'mailhog/mailhog:latest',
+      containerName: options?.container?.containerName || `${name}-mail`,
+      ports: [
+        { host: 1025, container: 1025 },
+        { host: 8025, container: 8025 }
+      ],
+      volumes: options?.container?.volumes || []
+    },
+    readiness: {
       command: 'curl -f http://localhost:8025/api/v2/messages',
       interval: 1000,
       timeout: 30000,
       retries: 3
     },
-    containerName: options?.containerName || `${name}-mail`,
     adapter: options?.adapter,
-    volumes: options?.volumes,
     dependsOn: options?.dependsOn,
-    workingDirectory: options?.workingDirectory,
     environment: options?.environment,
+    logging: options?.logging || 'info',
     ...options
   };
+}
+
+// Messaging configuration helpers
+export function createKafkaMessaging(name: string = 'kafka', options?: Partial<MessagingConfig>): MessagingConfig {
+  return {
+    name,
+    type: 'kafka',
+    category: 'messaging',
+    connection: {
+      brokers: ['localhost:9092'],
+      ...options?.connection
+    },
+    topics: options?.topics || ['test-topic'],
+    auth: options?.auth,
+    testMode: {
+      mockPublishers: false,
+      captureMessages: true,
+      isolation: 'topic',
+      ...options?.testMode
+    },
+    container: {
+      image: 'confluentinc/cp-kafka:latest',
+      containerName: options?.container?.containerName || `${name}-kafka`,
+      ports: [{ host: 9092, container: 9092 }],
+      volumes: options?.container?.volumes || []
+    },
+    environment: {
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181',
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092',
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1',
+      ...options?.environment
+    },
+    readiness: {
+      command: 'kafka-topics --bootstrap-server localhost:9092 --list',
+      interval: 2000,
+      timeout: 30000,
+      retries: 5
+    },
+    dependsOn: options?.dependsOn,
+    logging: options?.logging || 'info',
+    ...options
+  };
+}
+
+export function createRabbitMQMessaging(name: string = 'rabbitmq', options?: Partial<MessagingConfig>): MessagingConfig {
+  return {
+    name,
+    type: 'rabbitmq',
+    category: 'messaging',
+    connection: {
+      endpoint: 'amqp://localhost:5672',
+      ...options?.connection
+    },
+    queues: options?.queues || ['test-queue'],
+    auth: {
+      username: 'guest',
+      password: 'guest',
+      ...options?.auth
+    },
+    testMode: {
+      mockPublishers: false,
+      captureMessages: true,
+      isolation: 'queue',
+      ...options?.testMode
+    },
+    container: {
+      image: 'rabbitmq:3-management',
+      containerName: options?.container?.containerName || `${name}-rabbitmq`,
+      ports: [
+        { host: 5672, container: 5672 },
+        { host: 15672, container: 15672 }
+      ],
+      volumes: options?.container?.volumes || []
+    },
+    environment: {
+      RABBITMQ_DEFAULT_USER: 'guest',
+      RABBITMQ_DEFAULT_PASS: 'guest',
+      ...options?.environment
+    },
+    readiness: {
+      command: 'rabbitmq-diagnostics -q ping',
+      interval: 2000,
+      timeout: 30000,
+      retries: 5
+    },
+    dependsOn: options?.dependsOn,
+    logging: options?.logging || 'info',
+    ...options
+  };
+}
+
+export function createRedisStreamsMessaging(name: string = 'redis-streams', options?: Partial<MessagingConfig>): MessagingConfig {
+  return {
+    name,
+    category: 'messaging',
+    type: 'redis-streams',
+    connection: {
+      endpoint: 'redis://localhost:6379',
+      ...options?.connection
+    },
+    streams: options?.streams || ['test-stream'],
+    testMode: {
+      mockPublishers: false,
+      captureMessages: true,
+      isolation: 'stream',
+      ...options?.testMode
+    },
+    container: {
+      image: 'redis:7-alpine',
+      containerName: options?.container?.containerName || `${name}-redis`,
+      ports: [{ host: 6379, container: 6379 }],
+      volumes: options?.container?.volumes || []
+    },
+    readiness: {
+      command: 'redis-cli ping',
+      interval: 1000,
+      timeout: 30000,
+      retries: 3
+    },
+    dependsOn: options?.dependsOn,
+    logging: options?.logging || 'info',
+    ...options
+  };
+}
+
+// HTTP configuration helpers
+export function createHttpConfig(
+  baseUrl: string = 'http://localhost',
+  port?: number,
+  prefix?: string
+): HttpConfig {
+  return {
+    baseUrl,
+    port,
+    prefix
+  };
+}
+
+export function createWsConfig(
+  baseUrl: string = 'ws://localhost',
+  port?: number,
+  prefix?: string
+): HttpConfig {
+  return {
+    baseUrl,
+    port,
+    prefix
+  };
+}
+
+// Common HTTP config presets
+export function createLocalHttpConfig(port: number = 3000, prefix: string = 'api/v1'): HttpConfig {
+  return createHttpConfig('http://localhost', port, prefix);
+}
+
+export function createLocalWsConfig(port: number = 3001, prefix: string = 'ws'): HttpConfig {
+  return createWsConfig('ws://localhost', port, prefix);
+}
+
+export function createHttpsConfig(port: number = 443, prefix?: string): HttpConfig {
+  return createHttpConfig('https://localhost', port, prefix);
+}
+
+export function createWssConfig(port: number = 443, prefix?: string): HttpConfig {
+  return createWsConfig('wss://localhost', port, prefix);
 }
 
 
@@ -197,39 +381,13 @@ export function createSeedConfig(command: string, timeout?: number): SeedConfig 
   };
 }
 
-export function createTypeORMSeedConfig(timeout?: number): SeedConfig {
-  return {
-    command: 'npm run seed',
-    timeout: timeout || 30000
-  };
-}
-
-export function createTypeORMEntitiesSeedConfig(
-  entities: any[], 
-  data?: any[], 
-  options?: { clearBeforeSeed?: boolean; runMigrations?: boolean; timeout?: number; strategy?: 'once' | 'per-file' | 'per-test' | 'custom'; restoreStrategy?: 'none' | 'rollback' | 'reset' | 'snapshot' }
-): SeedConfig {
-  return {
-    timeout: options?.timeout || 30000,
-    entities,
-    typeorm: {
-      entities,
-      data: data || [],
-      clearBeforeSeed: options?.clearBeforeSeed ?? true,
-      runMigrations: options?.runMigrations ?? false
-    },
-    strategy: options?.strategy,
-    restoreStrategy: options?.restoreStrategy
-  };
-}
-
 // New seeding strategies
 export function createOnceSeedConfig(command: string, timeout?: number): SeedConfig {
   return {
     command,
     timeout: timeout || 30000,
     strategy: 'once',
-    restoreStrategy: 'none'
+    restore: 'none'
   };
 }
 
@@ -238,7 +396,7 @@ export function createPerFileSeedConfig(command: string, timeout?: number): Seed
     command,
     timeout: timeout || 30000,
     strategy: 'per-file',
-    restoreStrategy: 'rollback'
+    restore: 'rollback'
   };
 }
 
@@ -247,16 +405,16 @@ export function createPerTestSeedConfig(command: string, timeout?: number): Seed
     command,
     timeout: timeout || 30000,
     strategy: 'per-test',
-    restoreStrategy: 'reset'
+    restore: 'reset'
   };
 }
 
-export function createCustomSeedConfig(scenarios: SeedScenario[], timeout?: number): SeedConfig {
+export function createCustomSeedConfig(command: string, timeout?: number): SeedConfig {
   return {
+    command,
     timeout: timeout || 30000,
     strategy: 'custom',
-    restoreStrategy: 'snapshot',
-    customScenarios: scenarios
+    restore: 'snapshot'
   };
 }
 
@@ -270,7 +428,7 @@ export function createFlexibleSeedConfig(
     command,
     timeout: timeout || 30000,
     strategy,
-    restoreStrategy
+    restore: restoreStrategy
   };
 }
 
@@ -352,8 +510,16 @@ export function createAppWithDependencies(
   options?: Partial<ServiceConfig>
 ): ServiceConfig {
   return createAppService('app', {
-    image,
-    ports: [port],
+    local: options?.local || {
+      command: 'node',
+      cwd: '.',
+      args: []
+    },
+    container: {
+      image,
+      containerName: options?.container?.containerName || `app-service`,
+      ports: [{ host: port, container: port }]
+    },
     dependsOn: dependencies,
     ...options
   });
@@ -362,9 +528,9 @@ export function createAppWithDependencies(
 export function createPostgresWithDependencies(
   name: string = 'postgres',
   dependencies: string[] = [],
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createPostgresService(name, {
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createPostgresDatabase(name, {
     dependsOn: dependencies,
     ...options
   });
@@ -373,9 +539,9 @@ export function createPostgresWithDependencies(
 export function createMongoWithDependencies(
   name: string = 'mongodb',
   dependencies: string[] = [],
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createMongoService(name, {
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createMongoDatabase(name, {
     dependsOn: dependencies,
     ...options
   });
@@ -384,9 +550,9 @@ export function createMongoWithDependencies(
 export function createRedisWithDependencies(
   name: string = 'redis',
   dependencies: string[] = [],
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createRedisService(name, {
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createRedisDatabase(name, {
     dependsOn: dependencies,
     ...options
   });
@@ -395,60 +561,60 @@ export function createRedisWithDependencies(
 // Services with environment mapping
 export function createPostgresWithMapping(
   name: string = 'postgres',
-  envMapping: EnvironmentMapping,
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createPostgresService(name, {
-    envMapping,
-    ...options
+  envMapping: DatabaseEnvMapping,
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createPostgresDatabase(name, {
+    ...options,
+    container: options?.container ? {
+      ...options.container,
+      envMapping
+    } : undefined
   });
 }
 
 export function createMysqlWithMapping(
   name: string = 'mysql',
-  envMapping: EnvironmentMapping,
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createMysqlService(name, {
-    envMapping,
-    ...options
+  envMapping: DatabaseEnvMapping,
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createMysqlDatabase(name, {
+    ...options,
+    container: options?.container ? {
+      ...options.container,
+      envMapping
+    } : undefined
   });
 }
 
 export function createMongoWithMapping(
   name: string = 'mongo',
-  envMapping: EnvironmentMapping,
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createMongoService(name, {
-    envMapping,
-    ...options
+  envMapping: DatabaseEnvMapping,
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createMongoDatabase(name, {
+    ...options,
+    container: options?.container ? {
+      ...options.container,
+      envMapping
+    } : undefined
   });
 }
 
 export function createRedisWithMapping(
   name: string = 'redis',
-  envMapping: EnvironmentMapping,
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createRedisService(name, {
-    envMapping,
-    ...options
+  envMapping: DatabaseEnvMapping,
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createRedisDatabase(name, {
+    ...options,
+    container: options?.container ? {
+      ...options.container,
+      envMapping
+    } : undefined
   });
 }
 
-export function createAppWithDBMapping(
-  name: string = 'app',
-  dbServiceName: string,
-  envMapping: EnvironmentMapping,
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createAppService(name, {
-    dependsOn: [dbServiceName],
-    envMapping,
-    ...options
-  });
-}
 
 // Test configuration helpers
 export function createTestScenario(
@@ -492,18 +658,31 @@ export function createPrismaAdapter(config?: Record<string, any>): AdapterConfig
 export function createAppService(name: string = 'app', options?: Partial<ServiceConfig>): ServiceConfig {
   return {
     name,
-    type: 'service',
-    mode: 'container',
-    ports: [3000],
-    containerName: options?.containerName || `${name}-service`,
+    category: 'service',
+    type: 'app',
+    local: options?.local || {
+      command: 'node',
+      cwd: '.',
+      args: []
+    },
+    http: {
+      baseUrl: 'http://localhost',
+      port: 3000,
+      prefix: 'api/v1'
+    },
+    container: {
+      image: options?.container?.image || 'node:18-alpine',
+      containerName: options?.container?.containerName || `${name}-service`,
+      ports: [{ host: 3000, container: 3000 }],
+      volumes: options?.container?.volumes || []
+    },
     adapter: options?.adapter,
-    volumes: options?.volumes,
     dependsOn: options?.dependsOn,
-    workingDirectory: options?.workingDirectory,
     environment: options?.environment,
-    healthcheck: options?.healthcheck,
+    readiness: options?.readiness,
     logging: options?.logging || 'info',
     auth: options?.auth,
+    testMode: options?.testMode,
     ...options
   };
 }
@@ -512,9 +691,9 @@ export function createAppService(name: string = 'app', options?: Partial<Service
 export function createPostgresWithAdapter(
   name: string = 'postgres',
   adapter?: AdapterConfig,
-  options?: Partial<ServiceConfig>
-): ServiceConfig {
-  return createPostgresService(name, {
+  options?: Partial<DatabaseConfig>
+): DatabaseConfig {
+  return createPostgresDatabase(name, {
     adapter,
     ...options
   });
@@ -547,37 +726,23 @@ export function createVolumeConfig(
 // Health check configuration helpers
 export function createHealthCheckConfig(
   command: string,
-  options?: Partial<HealthCheckConfig>
-): HealthCheckConfig {
+  options?: Partial<ReadinessConfig>
+): ReadinessConfig {
   return {
     command,
     interval: 1000,
     timeout: 30000,
     retries: 3,
-    startPeriod: 0,
     ...options
   };
 }
 
-// Seed scenario helpers
-export function createSeedScenario(
-  name: string,
-  options?: Partial<SeedScenario>
-): SeedScenario {
-  return {
-    name,
-    description: options?.description,
-    condition: options?.condition,
-    seedData: options?.seedData,
-    seedCommand: options?.seedCommand,
-    restoreAfter: options?.restoreAfter ?? true
-  };
-}
+// Seed scenario helpers - removed as SeedScenario type doesn't exist
 
 // Test mode configuration helpers
 export function createTestModeConfig(
-  options?: Partial<TestModeConfig>
-): TestModeConfig {
+  options?: Partial<ServiceTestModeConfig>
+): ServiceTestModeConfig {
   return {
     controlPort: 3001,
     overrideEndpoint: '/__test__/override',
@@ -588,8 +753,8 @@ export function createTestModeConfig(
 
 // Environment mapping helpers
 export function createEnvironmentMapping(
-  options?: Partial<EnvironmentMapping>
-): EnvironmentMapping {
+  options?: Partial<DatabaseEnvMapping>
+): DatabaseEnvMapping {
   return {
     host: options?.host,
     port: options?.port,
@@ -601,7 +766,7 @@ export function createEnvironmentMapping(
 }
 
 // Common environment mapping presets
-export function createStandardDBMapping(): EnvironmentMapping {
+export function createStandardDBMapping(): DatabaseEnvMapping {
   return createEnvironmentMapping({
     host: 'DB_HOST',
     port: 'DB_PORT',
@@ -612,7 +777,7 @@ export function createStandardDBMapping(): EnvironmentMapping {
   });
 }
 
-export function createTypeORMMapping(): EnvironmentMapping {
+export function createTypeORMMapping(): DatabaseEnvMapping {
   return createEnvironmentMapping({
     host: 'TYPEORM_HOST',
     port: 'TYPEORM_PORT',
@@ -623,13 +788,13 @@ export function createTypeORMMapping(): EnvironmentMapping {
   });
 }
 
-export function createPrismaMapping(): EnvironmentMapping {
+export function createPrismaMapping(): DatabaseEnvMapping {
   return createEnvironmentMapping({
     url: 'DATABASE_URL'
   });
 }
 
-export function createSequelizeMapping(): EnvironmentMapping {
+export function createSequelizeMapping(): DatabaseEnvMapping {
   return createEnvironmentMapping({
     host: 'DB_HOST',
     port: 'DB_PORT',
@@ -639,13 +804,13 @@ export function createSequelizeMapping(): EnvironmentMapping {
   });
 }
 
-export function createMongooseMapping(): EnvironmentMapping {
+export function createMongooseMapping(): DatabaseEnvMapping {
   return createEnvironmentMapping({
     url: 'MONGODB_URI'
   });
 }
 
-export function createRedisMapping(): EnvironmentMapping {
+export function createRedisMapping(): DatabaseEnvMapping {
   return createEnvironmentMapping({
     host: 'REDIS_HOST',
     port: 'REDIS_PORT',

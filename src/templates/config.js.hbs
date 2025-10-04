@@ -3,57 +3,50 @@ module.exports = {
     {{#each services}}
     {
       name: '{{name}}',
-      type: '{{type}}'{{#if mode}},
-      mode: '{{mode}}'{{/if}}{{#if image}},
-      image: '{{image}}'{{/if}}{{#if ports}},
-      ports: [{{#each ports}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}{{#if command}},
-      command: '{{command}}'{{/if}}{{#if healthcheck}},
-      healthcheck: {
-        command: '{{healthcheck.command}}'
-      }{{/if}}{{#if containerName}},
-      containerName: '{{containerName}}'{{/if}}{{#if environment}},
-      environment: {
-        {{#each environment}}
+      category: '{{category}}',
+      type: '{{type}}',
+      mode: '{{mode}}'{{#if communicationType}},
+      communicationType: '{{communicationType}}'{{/if}}{{#hasContent http}},
+      http: {
+        {{#each http}}
+        {{@key}}: {{#if (eq @key "baseUrl")}}'{{this}}'{{else}}{{#if (eq @key "port")}}{{this}}{{else}}'{{this}}'{{/if}}{{/if}}{{#unless @last}},{{/unless}}
+        {{/each}}
+      }{{/hasContent}}{{#hasContent ws}},
+      ws: {
+        {{#each ws}}
+        {{@key}}: {{#if (eq @key "baseUrl")}}'{{this}}'{{else}}{{#if (eq @key "port")}}{{this}}{{else}}'{{this}}'{{/if}}{{/if}}{{#unless @last}},{{/unless}}
+        {{/each}}
+      }{{/hasContent}}{{#if framework}},
+      framework: '{{framework}}'{{/if}}{{#hasContent readiness}},
+      readiness: {
+        {{#each readiness}}
+        {{@key}}: {{#if (eq @key "enabled")}}{{this}}{{else}}'{{this}}'{{/if}}{{#unless @last}},{{/unless}}
+        {{/each}}
+      }{{/hasContent}}{{#hasContent local}},
+      local: {
+        {{#each local}}
         {{@key}}: '{{this}}'{{#unless @last}},{{/unless}}
         {{/each}}
-      }{{/if}}{{#if volumes}},
-      volumes: [
-        {{#each volumes}}
-        {
-          host: '{{host}}',
-          container: '{{container}}'{{#if mode}},
-          mode: '{{mode}}'{{/if}}
-        }{{#unless @last}},{{/unless}}
-        {{/each}}
-      ]{{/if}}{{#if dependsOn}},
-      dependsOn: [{{#each dependsOn}}'{{this}}'{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}{{#if workingDirectory}},
-      workingDirectory: '{{workingDirectory}}'{{/if}}{{#if dbStrategy}},
-      dbStrategy: '{{dbStrategy}}'{{/if}}{{#if parallelIsolation}},
-      parallelIsolation: '{{parallelIsolation}}'{{/if}}{{#hasContent seed}},
-      seed: {{{json seed}}}{{/hasContent}}{{#if envMapping}},
-      envMapping: {{{json envMapping}}}{{/if}}{{#if adapter}},
-      adapter: {
-        type: '{{adapter.type}}'{{#if adapter.config}},
-        config: {{{json adapter.config}}}{{/if}}
-      }{{/if}}
+      }{{/hasContent}}{{#hasContent container}},
+      container: {{{json container}}}{{/hasContent}}
+    }{{#unless @last}},{{/unless}}
+    {{/each}}
+  ],
+  databases: [
+    {{#each databases}}
+    {
+      name: '{{name}}',
+      category: '{{category}}',
+      type: '{{type}}',
+      mode: '{{mode}}'{{#if strategy}},
+      strategy: '{{strategy}}'{{/if}}{{#hasContent seeding}},
+      seeding: {{{json seeding}}}{{/hasContent}}{{#hasContent local}},
+      local: {{{json local}}}{{/hasContent}}{{#hasContent container}},
+      container: {{{json container}}}{{/hasContent}}
     }{{#unless @last}},{{/unless}}
     {{/each}}
   ],
   testType: '{{testType}}',
-  testDirectory: '{{testDirectory}}',
-  testFramework: '{{testFramework}}'{{#if urlPrefix}},
-  urlPrefix: '{{urlPrefix}}'{{/if}}{{#if adapters}},
-  adapters: [
-    {{#each adapters}}
-    {
-      type: '{{type}}'{{#if config}},
-      config: {{{json config}}}{{/if}}
-    }{{#unless @last}},{{/unless}}
-    {{/each}}
-  ]{{/if}}{{#if testMode}},
-  testMode: {
-    {{#if testMode.controlPort}}controlPort: {{testMode.controlPort}}{{#if testMode.overrideEndpoint}},{{/if}}{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.overrideEndpoint}}
-    overrideEndpoint: '{{testMode.overrideEndpoint}}'{{#if testMode.enableFakeTimers}},{{/if}}{{/if}}{{#if testMode.enableFakeTimers}}
-    enableFakeTimers: {{testMode.enableFakeTimers}}{{/if}}
-  }{{/if}}
+  testDir: '{{testDir}}',
+  testFramework: '{{testFramework}}'
 };

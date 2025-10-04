@@ -30,3 +30,20 @@ export function buildFullPath(urlPrefix: string, endpointPath: string): string {
     // Ensure we don't have double slashes
     return fullPath.replace(/\/+/g, '/');
   }
+
+export function buildUrl(http: {baseUrl: string, port?: number, prefix?: string}): string {
+  const { baseUrl, port, prefix } = http;
+  let url = `${baseUrl}${port ? ':' + port : ''}${prefix ? '/' + prefix : ''}`.trim();
+
+  url = url.replace(/^(?!https?:\/\/)/i, 'http://');
+
+  const match = url.match(/^(https?:\/\/)(.*)$/i);
+  if (!match) return url;
+
+  const scheme = match[1];
+  let rest = match[2];
+
+  rest = rest.replace(/\/{2,}/g, '/').replace(/:{2,}/g, ':');
+
+  return scheme + rest;
+}

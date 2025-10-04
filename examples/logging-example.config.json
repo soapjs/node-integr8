@@ -1,0 +1,47 @@
+{
+  "services": [
+    {
+      "name": "postgres",
+      "type": "postgres",
+      "image": "postgres:15-alpine",
+      "ports": [5432],
+      "environment": {
+        "POSTGRES_DB": "testdb",
+        "POSTGRES_USER": "testuser",
+        "POSTGRES_PASSWORD": "testpass"
+      },
+      "dbStrategy": "savepoint",
+      "logging": "debug",
+      "seed": {
+        "command": "npm run seed"
+      }
+    },
+    {
+      "name": "redis",
+      "type": "redis",
+      "image": "redis:7-alpine",
+      "ports": [6379],
+      "logging": "warn"
+    },
+    {
+      "name": "app",
+      "type": "service",
+      "mode": "local",
+      "command": "npm start",
+      "ports": [3000],
+      "workingDirectory": ".",
+      "healthcheck": {
+        "command": "curl -f http://localhost:3000/health",
+        "interval": 1000,
+        "timeout": 30000,
+        "retries": 3
+      },
+      "dependsOn": ["postgres", "redis"],
+      "logging": "info"
+    }
+  ],
+  "adapters": [
+    { "type": "express" }
+  ],
+  "testDir": "tests"
+}

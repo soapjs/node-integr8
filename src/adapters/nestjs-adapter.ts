@@ -1,13 +1,19 @@
 import { Adapter, AdapterConfig } from '../types';
+import { createServiceLogger } from '../utils/logger';
 
 export class NestJSAdapter implements Adapter {
   public name = 'nestjs';
   private overrides: Map<string, any> = new Map();
   private moduleRef?: any; // NestJS ModuleRef
   private app?: any; // NestJS Application
+  private logger: any;
 
   async initialize(config: AdapterConfig): Promise<void> {
-    console.log('Initializing NestJS adapter');
+    // Create logger for this adapter
+    const serviceConfig = { category: 'service' as const, name: 'nestjs-adapter', type: 'service' as const, logging: config.config?.logging || 'log' };
+    this.logger = createServiceLogger(serviceConfig, 'nestjs-adapter');
+    
+    this.logger.info('Initializing NestJS adapter');
     
     // This would be integrated into the NestJS app
     // The adapter would get ModuleRef and Application references
@@ -20,11 +26,11 @@ export class NestJSAdapter implements Adapter {
     // Apply the override to NestJS
     await this.applyOverrideToNestJS(type, name, implementation);
     
-    console.log(`NestJS adapter applied override: ${key}`);
+    this.logger.debug(`NestJS adapter applied override: ${key}`);
   }
 
   async teardown(): Promise<void> {
-    console.log('Tearing down NestJS adapter');
+    this.logger.info('Tearing down NestJS adapter');
     this.overrides.clear();
   }
 
@@ -59,7 +65,7 @@ export class NestJSAdapter implements Adapter {
         await this.overrideDataSource(name, implementation);
         break;
       default:
-        console.log(`NestJS adapter: Unknown override type '${type}'`);
+        this.logger.warn(`NestJS adapter: Unknown override type '${type}'`);
     }
   }
 

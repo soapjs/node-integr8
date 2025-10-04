@@ -2,27 +2,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import inquirer from 'inquirer';
 import Handlebars from 'handlebars';
-import { Integr8Config, ServiceConfig } from '../../types';
+import { Integr8Config, ServiceConfig, DatabaseConfig, MessagingConfig, StorageConfig } from '../../types';
 import { PromptsConfig, InitAnswers } from '../types';
 import { PROMPTS } from '../prompts';
-import { join } from 'path';
-import { buildFullPath } from '../../utils/url.utils';
 
 export class InteractiveInit {
   private prompts: PromptsConfig;
   private answers: InitAnswers = {
     testType: '',
-    appStructure: '',
-    testDirectory: '',
-    mainServiceName: '',
-    readinessEndpoint: false,
-    readinessPath: '',
-    urlPrefix: '',
-    databases: [],
-    additionalServices: false,
-    services: [],
+    testDir: '',
     configFileType: '',
-    databaseConfigs: {}
+    components: [],
+    services: [],
+    databases: [],
+    storages: [],
+    messaging: []
   };
 
   constructor() {
@@ -48,13 +42,14 @@ export class InteractiveInit {
         if (value === null || value === undefined) return false;
         if (typeof value === 'string' && value.trim() === '') return false;
         if (Array.isArray(value) && value.length === 0) return false;
-        if (typeof value === 'object' && Object.keys(value).length === 0) return false;
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          return Object.keys(value).length > 0;
+        }
         return true;
       });
       
       return hasContent ? options.fn(this) : options.inverse(this);
     });
-
   }
 
   async run(): Promise<void> {
@@ -63,14 +58,16 @@ export class InteractiveInit {
 
     try {
       await this.askTestType();
-      await this.askAppStructure();
       await this.askTestConfig();
-      await this.askDatabaseSelection();
-      await this.askDatabaseConfigs();
-      // Only ask for additional services if user selected monorepo
-      if (this.answers.appStructure === 'monorepo') {
-        await this.askAdditionalServices();
+      
+      // Main component selection loop
+      let addMoreComponents = true;
+      while (addMoreComponents) {
+        await this.askComponentSelection();
+        await this.configureSelectedComponent();
+        addMoreComponents = await this.askAddMoreComponents();
       }
+      
       await this.askConfigFileType();
       await this.generateConfig();
       
@@ -97,200 +94,752 @@ export class InteractiveInit {
     this.answers.testType = testType;
   }
 
-  private async askAppStructure(): Promise<void> {
-    const { appStructure } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'appStructure',
-        message: this.prompts.appStructure.question,
-        choices: this.prompts.appStructure.choices.map(choice => ({
-          name: `${choice.name} - ${choice.description}`,
-          value: choice.value
-        }))
-      }
-    ]);
-    this.answers.appStructure = appStructure;
-  }
-
   private async askTestConfig(): Promise<void> {
-    const { mainServiceName, urlPrefix, readinessEndpoint, readinessPath } = await inquirer.prompt([
+    const { testDir } = await inquirer.prompt([
       {
         type: 'input',
-        name: 'mainServiceName',
-        message: this.prompts.testConfig.mainServiceName.question,
-        default: this.prompts.testConfig.mainServiceName.default
-      },
-      {
-        type: 'input',
-        name: 'urlPrefix',
-        message: this.prompts.testConfig.urlPrefix.question,
-        default: this.prompts.testConfig.urlPrefix.default
-      },
-      {
-        type: 'confirm',
-        name: 'readinessEndpoint',
-        message: this.prompts.testConfig.readinessEndpoint.question,
-        default: this.prompts.testConfig.readinessEndpoint.default
-      },
-      {
-        type: 'input',
-        name: 'readinessPath',
-        message: this.prompts.testConfig.readinessPath.question,
-        default: (answers: any) => {
-          const basePath = this.prompts.testConfig.readinessPath.default;
-          if (answers.urlPrefix && answers.urlPrefix.trim()) {
-            const prefix = answers.urlPrefix.trim();
-            // Ensure prefix starts with / and doesn't end with /
-            const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
-            const cleanPrefix = normalizedPrefix.endsWith('/') ? normalizedPrefix.slice(0, -1) : normalizedPrefix;
-            return `${cleanPrefix}${basePath}`;
-          }
-          return basePath;
-        },
-        when: (answers: any) => answers.readinessEndpoint
+        name: 'testDir',
+        message: this.prompts.testConfig.testDir.question,
+        default: this.prompts.testConfig.testDir.default
       }
     ]);
 
-    this.answers.testDirectory = 'integr8'; // Fixed default
-    this.answers.mainServiceName = mainServiceName;
-    this.answers.readinessEndpoint = readinessEndpoint;
-    this.answers.readinessPath = readinessPath;
-    this.answers.urlPrefix = urlPrefix;
+    this.answers.testDir = testDir;
   }
 
-  private async askDatabaseSelection(): Promise<void> {
-    const { databases } = await inquirer.prompt([
-      {
-        type: 'checkbox',
-        name: 'databases',
-        message: this.prompts.databaseSelection.question,
-        choices: this.prompts.databaseSelection.choices.map(choice => ({
-          name: `${choice.name} - ${choice.description}`,
-          value: choice.value
-        }))
-      }
-    ]);
-    this.answers.databases = databases;
-  }
-
-  private async askDatabaseConfigs(): Promise<void> {
-    for (const db of this.answers.databases) {
-      if (db === 'none') continue;
-
-      console.log(`\n📊 Configuring ${db.toUpperCase()}:`);
-
-      const { strategy, seeding, seedCommand, seedFile } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'strategy',
-          message: this.prompts.databaseConfig.strategy.question,
-          choices: this.prompts.databaseConfig.strategy.choices.map(choice => ({
-            name: `${choice.name} - ${choice.description}`,
-            value: choice.value
-          }))
-        },
-        {
-          type: 'list',
-          name: 'seeding',
-          message: this.prompts.databaseConfig.seeding.question,
-          choices: this.prompts.databaseConfig.seeding.choices.map(choice => ({
-            name: `${choice.name} - ${choice.description}`,
-            value: choice.value
-          }))
-        },
-        {
-          type: 'input',
-          name: 'seedCommand',
-          message: this.prompts.databaseConfig.seedCommand.question,
-          default: this.prompts.databaseConfig.seedCommand.default,
-          when: (answers: any) => answers.seeding === 'command'
-        },
-        {
-          type: 'input',
-          name: 'seedFile',
-          message: this.prompts.databaseConfig.seedFile.question,
-          default: this.prompts.databaseConfig.seedFile.default,
-          when: (answers: any) => answers.seeding === 'file'
-        }
-      ]);
-
-      this.answers.databaseConfigs[db] = {
-        strategy,
-        seeding,
-        seedCommand,
-        seedFile
-      };
-    }
-  }
-
-  private async askAdditionalServices(): Promise<void> {
-    const { additionalServices } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'additionalServices',
-        message: this.prompts.additionalServices.question,
-        default: this.prompts.additionalServices.default
-      }
-    ]);
-
-    this.answers.additionalServices = additionalServices;
-
-    if (additionalServices) {
-      await this.askForService();
-    }
-  }
-
-  private async askForService(): Promise<void> {
-    const { serviceType, serviceName, containerName, image } = await inquirer.prompt([
+  private async askComponentSelection(): Promise<void> {
+    const { componentType } = await inquirer.prompt([
       {
         type: 'list',
-        name: 'serviceType',
-        message: this.prompts.additionalServices.serviceType.question,
-        choices: this.prompts.additionalServices.serviceType.choices.map(choice => ({
+        name: 'componentType',
+        message: this.prompts.componentSelection.question,
+        choices: this.prompts.componentSelection.choices.map(choice => ({
           name: `${choice.name} - ${choice.description}`,
           value: choice.value
         }))
-      },
-      {
-        type: 'input',
-        name: 'serviceName',
-        message: this.prompts.additionalServices.serviceName.question,
-        default: this.prompts.additionalServices.serviceName.default
-      },
-      {
-        type: 'input',
-        name: 'containerName',
-        message: this.prompts.additionalServices.containerName.question,
-        default: this.prompts.additionalServices.containerName.default
-      },
-      {
-        type: 'input',
-        name: 'image',
-        message: this.prompts.additionalServices.image.question,
-        default: this.prompts.additionalServices.image.default,
-        when: (answers: any) => answers.serviceType === 'custom'
       }
     ]);
-
-    this.answers.services.push({
-      type: serviceType,
-      name: serviceName,
-      containerName: containerName,
-      image: serviceType === 'custom' ? image : undefined
+    
+    this.answers.components.push({
+      category: componentType,
+      name: '',
+      config: {}
     });
+  }
 
+  private async configureSelectedComponent(): Promise<void> {
+    const currentComponent = this.answers.components[this.answers.components.length - 1];
+    
+    switch (currentComponent.category) {
+      case 'service':
+        await this.configureService();
+        break;
+      case 'database':
+        await this.configureDatabase();
+        break;
+      case 'storage':
+        await this.configureStorage();
+        break;
+      case 'messaging':
+        await this.configureMessaging();
+        break;
+      default:
+        console.log(`⚠️  Component type '${currentComponent.category}' is coming soon!`);
+        this.answers.components.pop(); // Remove the unsupported component
+    }
+  }
+
+  private async askAddMoreComponents(): Promise<boolean> {
     const { addMore } = await inquirer.prompt([
       {
         type: 'confirm',
         name: 'addMore',
-        message: 'Add another service?',
-        default: false
+        message: this.prompts.addMoreComponents.question,
+        default: this.prompts.addMoreComponents.default
+      }
+    ]);
+    return addMore;
+  }
+
+  private async configureService(): Promise<void> {
+    const currentComponent = this.answers.components[this.answers.components.length - 1];
+    
+    const serviceConfig = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'name',
+        message: this.prompts.serviceConfig.name.question,
+        default: this.prompts.serviceConfig.name.default
+      },
+      {
+        type: 'list',
+        name: 'mode',
+        message: this.prompts.serviceConfig.mode.question,
+        choices: this.prompts.serviceConfig.mode.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      },
+      {
+        type: 'list',
+        name: 'communicationType',
+        message: this.prompts.serviceConfig.communicationType.question,
+        choices: this.prompts.serviceConfig.communicationType.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
       }
     ]);
 
-    if (addMore) {
-      await this.askForService();
+    currentComponent.name = serviceConfig.name;
+    currentComponent.config = serviceConfig;
+
+    // Configure communication-specific settings
+    if (serviceConfig.communicationType === 'http') {
+      const httpConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'baseUrl',
+          message: this.prompts.serviceConfig.httpConfig.baseUrl.question,
+          default: this.prompts.serviceConfig.httpConfig.baseUrl.default
+        },
+        {
+          type: 'number',
+          name: 'port',
+          message: this.prompts.serviceConfig.httpConfig.port.question,
+          default: this.prompts.serviceConfig.httpConfig.port.default
+        },
+        {
+          type: 'input',
+          name: 'prefix',
+          message: this.prompts.serviceConfig.httpConfig.prefix.question,
+          default: this.prompts.serviceConfig.httpConfig.prefix.default
+        }
+      ]);
+      currentComponent.config.http = httpConfig;
+    } else if (serviceConfig.communicationType === 'ws') {
+      const wsConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'baseUrl',
+          message: this.prompts.serviceConfig.wsConfig.baseUrl.question,
+          default: this.prompts.serviceConfig.wsConfig.baseUrl.default
+        },
+        {
+          type: 'number',
+          name: 'port',
+          message: this.prompts.serviceConfig.wsConfig.port.question,
+          default: this.prompts.serviceConfig.wsConfig.port.default
+        },
+        {
+          type: 'input',
+          name: 'prefix',
+          message: this.prompts.serviceConfig.wsConfig.prefix.question,
+          default: this.prompts.serviceConfig.wsConfig.prefix.default
+        }
+      ]);
+      currentComponent.config.ws = wsConfig;
     }
+
+    // Ask for framework
+    const frameworkChoice = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'framework',
+        message: this.prompts.serviceConfig.framework.question,
+        choices: this.prompts.serviceConfig.framework.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      }
+    ]);
+    currentComponent.config.framework = frameworkChoice.framework;
+
+    // Configure local or container mode
+    if (serviceConfig.mode === 'local') {
+      const localConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'command',
+          message: this.prompts.serviceConfig.localConfig.command.question,
+          default: this.prompts.serviceConfig.localConfig.command.default
+        },
+        {
+          type: 'input',
+          name: 'workingDirectory',
+          message: this.prompts.serviceConfig.localConfig.workingDirectory.question,
+          default: this.prompts.serviceConfig.localConfig.workingDirectory.default
+        },
+      ]);
+      
+      currentComponent.config.local = {
+        command: localConfig.command,
+        workingDirectory: localConfig.workingDirectory
+      };
+    } else if (serviceConfig.mode === 'container') {
+      const containerConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'image',
+          message: this.prompts.serviceConfig.containerConfig.image.question,
+          default: this.prompts.serviceConfig.containerConfig.image.default
+        },
+        {
+          type: 'input',
+          name: 'containerName',
+          message: this.prompts.serviceConfig.containerConfig.containerName.question,
+          default: this.prompts.serviceConfig.containerConfig.containerName.default
+        },
+        {
+          type: 'input',
+          name: 'ports',
+          message: this.prompts.serviceConfig.containerConfig.ports.question,
+          default: this.prompts.serviceConfig.containerConfig.ports.default
+        },
+        {
+          type: 'input',
+          name: 'environment',
+          message: this.prompts.serviceConfig.containerConfig.environment.question,
+          default: this.prompts.serviceConfig.containerConfig.environment.default
+        }
+      ]);
+      
+      const portsArray = containerConfig.ports ? 
+        containerConfig.ports.split(',').map((port: string) => {
+          const [host, container] = port.trim().split(':');
+          return { host: parseInt(host), container: parseInt(container) };
+        }) : [];
+      
+      const environmentObj = containerConfig.environment ? 
+        containerConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
+          const [key, value] = env.trim().split('=');
+          if (key && value) acc[key] = value;
+          return acc;
+        }, {}) : {};
+      
+      currentComponent.config.container = {
+        image: containerConfig.image,
+        containerName: containerConfig.containerName,
+        ports: portsArray,
+        environment: environmentObj
+      };
+    }
+
+    // Ask for health checks
+    const readinessConfig = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'enabled',
+        message: this.prompts.serviceConfig.readiness.enabled.question,
+        default: this.prompts.serviceConfig.readiness.enabled.default
+      }
+    ]);
+
+    if (readinessConfig.enabled) {
+      const readinessDetails = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'endpoint',
+          message: this.prompts.serviceConfig.readiness.endpoint.question,
+          default: this.prompts.serviceConfig.readiness.endpoint.default
+        },
+        {
+          type: 'input',
+          name: 'command',
+          message: this.prompts.serviceConfig.readiness.command.question,
+          default: this.prompts.serviceConfig.readiness.command.default
+        }
+      ]);
+      currentComponent.config.readiness = {
+        enabled: true,
+        ...readinessDetails
+      };
+    }
+
+    // Add to services array
+    this.answers.services.push({
+      name: serviceConfig.name,
+      category: 'service',
+      mode: serviceConfig.mode,
+      communicationType: serviceConfig.communicationType,
+      ...currentComponent.config
+    });
+  }
+
+  private async configureDatabase(): Promise<void> {
+    const currentComponent = this.answers.components[this.answers.components.length - 1];
+    
+    const dbConfig = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'name',
+        message: this.prompts.databaseConfig.name.question,
+        default: this.prompts.databaseConfig.name.default
+      },
+      {
+        type: 'list',
+        name: 'mode',
+        message: this.prompts.databaseConfig.mode.question,
+        choices: this.prompts.databaseConfig.mode.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      },
+      {
+        type: 'list',
+        name: 'type',
+        message: this.prompts.databaseConfig.type.question,
+        choices: this.prompts.databaseConfig.type.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      },
+      {
+        type: 'list',
+        name: 'strategy',
+        message: this.prompts.databaseConfig.strategy.question,
+        choices: this.prompts.databaseConfig.strategy.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      },
+      {
+        type: 'list',
+        name: 'seeding',
+        message: this.prompts.databaseConfig.seeding.question,
+        choices: this.prompts.databaseConfig.seeding.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      }
+    ]);
+
+    currentComponent.name = dbConfig.name;
+    currentComponent.config = dbConfig;
+
+    // Ask for seeding details if needed
+    if (dbConfig.seeding === 'command') {
+      const seedCommand = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'seedCommand',
+          message: this.prompts.databaseConfig.seedCommand.question,
+          default: this.prompts.databaseConfig.seedCommand.default
+        }
+      ]);
+      currentComponent.config.seedCommand = seedCommand.seedCommand;
+    } else if (dbConfig.seeding === 'file') {
+      const seedFile = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'seedFile',
+          message: this.prompts.databaseConfig.seedFile.question,
+          default: this.prompts.databaseConfig.seedFile.default
+        }
+      ]);
+      currentComponent.config.seedFile = seedFile.seedFile;
+    }
+
+    // Configure local or container mode for database
+    if (dbConfig.mode === 'local') {
+      const localDbConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'host',
+          message: this.prompts.databaseConfig.localConfig.host.question,
+          default: this.prompts.databaseConfig.localConfig.host.default
+        },
+        {
+          type: 'input',
+          name: 'port',
+          message: this.prompts.databaseConfig.localConfig.port.question,
+          default: this.prompts.databaseConfig.localConfig.port.default
+        },
+        {
+          type: 'input',
+          name: 'username',
+          message: this.prompts.databaseConfig.localConfig.username.question,
+          default: this.prompts.databaseConfig.localConfig.username.default
+        },
+        {
+          type: 'input',
+          name: 'password',
+          message: this.prompts.databaseConfig.localConfig.password.question,
+          default: this.prompts.databaseConfig.localConfig.password.default
+        }
+      ]);
+      
+      currentComponent.config.local = {
+        host: localDbConfig.host,
+        port: localDbConfig.port,
+        username: localDbConfig.username,
+        password: localDbConfig.password
+      };
+    } else if (dbConfig.mode === 'container') {
+      const containerDbConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'image',
+          message: this.prompts.databaseConfig.containerConfig.image.question,
+          default: this.prompts.databaseConfig.containerConfig.image.default
+        },
+        {
+          type: 'input',
+          name: 'containerName',
+          message: this.prompts.databaseConfig.containerConfig.containerName.question,
+          default: this.prompts.databaseConfig.containerConfig.containerName.default
+        },
+        {
+          type: 'input',
+          name: 'ports',
+          message: this.prompts.databaseConfig.containerConfig.ports.question,
+          default: this.prompts.databaseConfig.containerConfig.ports.default
+        },
+        {
+          type: 'input',
+          name: 'environment',
+          message: this.prompts.databaseConfig.containerConfig.environment.question,
+          default: this.prompts.databaseConfig.containerConfig.environment.default
+        }
+      ]);
+      
+      const portsArray = containerDbConfig.ports ? 
+        containerDbConfig.ports.split(',').map((port: string) => {
+          const [host, container] = port.trim().split(':');
+          return { host: parseInt(host), container: parseInt(container) };
+        }) : [];
+      
+      const environmentObj = containerDbConfig.environment ? 
+        containerDbConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
+          const [key, value] = env.trim().split('=');
+          if (key && value) acc[key] = value;
+          return acc;
+        }, {}) : {};
+      
+      // Ask for environment mapping
+      const envMapping = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'host',
+          message: this.prompts.databaseConfig.envMapping.host.question,
+          default: this.prompts.databaseConfig.envMapping.host.default
+        },
+        {
+          type: 'input',
+          name: 'port',
+          message: this.prompts.databaseConfig.envMapping.port.question,
+          default: this.prompts.databaseConfig.envMapping.port.default
+        },
+        {
+          type: 'input',
+          name: 'username',
+          message: this.prompts.databaseConfig.envMapping.username.question,
+          default: this.prompts.databaseConfig.envMapping.username.default
+        },
+        {
+          type: 'input',
+          name: 'password',
+          message: this.prompts.databaseConfig.envMapping.password.question,
+          default: this.prompts.databaseConfig.envMapping.password.default
+        },
+        {
+          type: 'input',
+          name: 'database',
+          message: this.prompts.databaseConfig.envMapping.database.question,
+          default: this.prompts.databaseConfig.envMapping.database.default
+        },
+        {
+          type: 'input',
+          name: 'url',
+          message: this.prompts.databaseConfig.envMapping.url.question,
+          default: this.prompts.databaseConfig.envMapping.url.default
+        }
+      ]);
+
+      currentComponent.config.container = {
+        image: containerDbConfig.image,
+        containerName: containerDbConfig.containerName,
+        ports: portsArray,
+        environment: environmentObj,
+        envMapping: envMapping
+      };
+    }
+
+    // Add to databases array
+    this.answers.databases.push({
+      name: dbConfig.name,
+      category: 'database',
+      mode: dbConfig.mode,
+      type: dbConfig.type,
+      strategy: dbConfig.strategy,
+      seeding: dbConfig.seeding,
+      ...(currentComponent.config.seedCommand && { seedCommand: currentComponent.config.seedCommand }),
+      ...(currentComponent.config.seedFile && { seedFile: currentComponent.config.seedFile }),
+      ...(currentComponent.config.local && { local: currentComponent.config.local }),
+      ...(currentComponent.config.container && { container: currentComponent.config.container })
+    });
+  }
+
+  private async configureStorage(): Promise<void> {
+    const currentComponent = this.answers.components[this.answers.components.length - 1];
+    
+    const storageConfig = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'name',
+        message: this.prompts.storageConfig.name.question,
+        default: this.prompts.storageConfig.name.default
+      },
+      {
+        type: 'input',
+        name: 'type',
+        message: this.prompts.storageConfig.type.question,
+        default: this.prompts.storageConfig.type.default
+      },
+      {
+        type: 'list',
+        name: 'mode',
+        message: this.prompts.storageConfig.mode.question,
+        choices: this.prompts.storageConfig.mode.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      }
+    ]);
+
+    currentComponent.name = storageConfig.name;
+    currentComponent.config = storageConfig;
+
+    // Configure local or container mode for storage
+    if (storageConfig.mode === 'container') {
+      const containerStorageConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'image',
+          message: this.prompts.storageConfig.containerConfig.image.question,
+          default: this.prompts.storageConfig.containerConfig.image.default
+        },
+        {
+          type: 'input',
+          name: 'containerName',
+          message: this.prompts.storageConfig.containerConfig.containerName.question,
+          default: this.prompts.storageConfig.containerConfig.containerName.default
+        },
+        {
+          type: 'input',
+          name: 'ports',
+          message: this.prompts.storageConfig.containerConfig.ports.question,
+          default: this.prompts.storageConfig.containerConfig.ports.default
+        },
+        {
+          type: 'input',
+          name: 'environment',
+          message: this.prompts.storageConfig.containerConfig.environment.question,
+          default: this.prompts.storageConfig.containerConfig.environment.default
+        }
+      ]);
+      
+      const portsArray = containerStorageConfig.ports ? 
+        containerStorageConfig.ports.split(',').map((port: string) => {
+          const [host, container] = port.trim().split(':');
+          return { host: parseInt(host), container: parseInt(container) };
+        }) : [];
+      
+      const environmentObj = containerStorageConfig.environment ? 
+        containerStorageConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
+          const [key, value] = env.trim().split('=');
+          if (key && value) acc[key] = value;
+          return acc;
+        }, {}) : {};
+      
+      // Ask for environment mapping
+      const envMapping = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'endpoint',
+          message: this.prompts.storageConfig.envMapping.endpoint.question,
+          default: this.prompts.storageConfig.envMapping.endpoint.default
+        },
+        {
+          type: 'input',
+          name: 'region',
+          message: this.prompts.storageConfig.envMapping.region.question,
+          default: this.prompts.storageConfig.envMapping.region.default
+        },
+        {
+          type: 'input',
+          name: 'accessKey',
+          message: this.prompts.storageConfig.envMapping.accessKey.question,
+          default: this.prompts.storageConfig.envMapping.accessKey.default
+        },
+        {
+          type: 'input',
+          name: 'secretKey',
+          message: this.prompts.storageConfig.envMapping.secretKey.question,
+          default: this.prompts.storageConfig.envMapping.secretKey.default
+        }
+      ]);
+
+      currentComponent.config.container = {
+        image: containerStorageConfig.image,
+        containerName: containerStorageConfig.containerName,
+        ports: portsArray,
+        environment: environmentObj,
+        envMapping: envMapping
+      };
+    }
+
+    // Add to storages array
+    this.answers.storages.push({
+      name: storageConfig.name,
+      category: 'storage',
+      type: storageConfig.type,
+      mode: storageConfig.mode,
+      ...(currentComponent.config.container && { container: currentComponent.config.container })
+    });
+  }
+
+  private async configureMessaging(): Promise<void> {
+    const currentComponent = this.answers.components[this.answers.components.length - 1];
+    
+    const messagingConfig = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'name',
+        message: this.prompts.messagingConfig.name.question,
+        default: this.prompts.messagingConfig.name.default
+      },
+      {
+        type: 'list',
+        name: 'type',
+        message: this.prompts.messagingConfig.type.question,
+        choices: this.prompts.messagingConfig.type.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      },
+      {
+        type: 'list',
+        name: 'mode',
+        message: this.prompts.messagingConfig.mode.question,
+        choices: this.prompts.messagingConfig.mode.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      },
+      {
+        type: 'input',
+        name: 'brokers',
+        message: this.prompts.messagingConfig.brokers.question,
+        default: this.prompts.messagingConfig.brokers.default
+      },
+      {
+        type: 'input',
+        name: 'topics',
+        message: this.prompts.messagingConfig.topics.question,
+        default: this.prompts.messagingConfig.topics.default
+      },
+      {
+        type: 'input',
+        name: 'queues',
+        message: this.prompts.messagingConfig.queues.question,
+        default: this.prompts.messagingConfig.queues.default
+      }
+    ]);
+
+    currentComponent.name = messagingConfig.name;
+    currentComponent.config = messagingConfig;
+
+    // Configure local or container mode for messaging
+    if (messagingConfig.mode === 'container') {
+      const containerMessagingConfig = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'image',
+          message: this.prompts.messagingConfig.containerConfig.image.question,
+          default: this.prompts.messagingConfig.containerConfig.image.default
+        },
+        {
+          type: 'input',
+          name: 'containerName',
+          message: this.prompts.messagingConfig.containerConfig.containerName.question,
+          default: this.prompts.messagingConfig.containerConfig.containerName.default
+        },
+        {
+          type: 'input',
+          name: 'ports',
+          message: this.prompts.messagingConfig.containerConfig.ports.question,
+          default: this.prompts.messagingConfig.containerConfig.ports.default
+        },
+        {
+          type: 'input',
+          name: 'environment',
+          message: this.prompts.messagingConfig.containerConfig.environment.question,
+          default: this.prompts.messagingConfig.containerConfig.environment.default
+        }
+      ]);
+      
+      const portsArray = containerMessagingConfig.ports ? 
+        containerMessagingConfig.ports.split(',').map((port: string) => {
+          const [host, container] = port.trim().split(':');
+          return { host: parseInt(host), container: parseInt(container) };
+        }) : [];
+      
+      const environmentObj = containerMessagingConfig.environment ? 
+        containerMessagingConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
+          const [key, value] = env.trim().split('=');
+          if (key && value) acc[key] = value;
+          return acc;
+        }, {}) : {};
+      
+      // Ask for environment mapping
+      const envMapping = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'brokers',
+          message: this.prompts.messagingConfig.envMapping.brokers.question,
+          default: this.prompts.messagingConfig.envMapping.brokers.default
+        },
+        {
+          type: 'input',
+          name: 'clusterId',
+          message: this.prompts.messagingConfig.envMapping.clusterId.question,
+          default: this.prompts.messagingConfig.envMapping.clusterId.default
+        },
+        {
+          type: 'input',
+          name: 'endpoint',
+          message: this.prompts.messagingConfig.envMapping.endpoint.question,
+          default: this.prompts.messagingConfig.envMapping.endpoint.default
+        },
+        {
+          type: 'input',
+          name: 'region',
+          message: this.prompts.messagingConfig.envMapping.region.question,
+          default: this.prompts.messagingConfig.envMapping.region.default
+        }
+      ]);
+
+      currentComponent.config.container = {
+        image: containerMessagingConfig.image,
+        containerName: containerMessagingConfig.containerName,
+        ports: portsArray,
+        environment: environmentObj,
+        envMapping: envMapping
+      };
+    }
+
+    // Add to messaging array
+    this.answers.messaging.push({
+      name: messagingConfig.name,
+      category: 'messaging',
+      type: messagingConfig.type,
+      mode: messagingConfig.mode,
+      brokers: messagingConfig.brokers,
+      topics: messagingConfig.topics,
+      queues: messagingConfig.queues,
+      ...(currentComponent.config.container && { container: currentComponent.config.container })
+    });
   }
 
   private async askConfigFileType(): Promise<void> {
@@ -308,323 +857,130 @@ export class InteractiveInit {
     this.answers.configFileType = configFileType;
   }
 
+  private formatJsConfig(config: any): string {
+    // Custom JSON stringify that removes quotes from object keys
+    const formatValue = (value: any, indent = 0): string => {
+      const spaces = '  '.repeat(indent);
+      
+      if (value === null) return 'null';
+      if (value === undefined) return 'undefined';
+      if (typeof value === 'string') return `"${value}"`;
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      
+      if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        const items = value.map(item => `${spaces}  ${formatValue(item, indent + 1)}`).join(',\n');
+        return `[\n${items}\n${spaces}]`;
+      }
+      
+      if (typeof value === 'object') {
+        const entries = Object.entries(value);
+        if (entries.length === 0) return '{}';
+        
+        const items = entries.map(([key, val]) => {
+          const formattedKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`;
+          return `${spaces}  ${formattedKey}: ${formatValue(val, indent + 1)}`;
+        }).join(',\n');
+        
+        return `{\n${items}\n${spaces}}`;
+      }
+      
+      return JSON.stringify(value);
+    };
+    
+    return formatValue(config);
+  }
+
   private async generateConfig(): Promise<void> {
     const config = this.buildConfig();
-    const filename = this.getConfigFilename();
+    await this.saveConfig(config);
     
-    if (fs.existsSync(filename)) {
+    console.log('\nCheck your config file and run your tests!');
+  }
+
+  private buildConfig(): Integr8Config {
+    return {
+      testType: this.answers.testType as any,
+      testDir: this.answers.testDir,
+      services: this.answers.services.map(service => ({
+        name: service.name,
+        category: 'service',
+        type: service.type,
+        mode: service.mode,
+        communicationType: service.communicationType,
+        http: service.http,
+        ws: service.ws,
+        framework: service.framework,
+        readiness: service.readiness,
+        local: service.local,
+        container: service.container
+      })) as ServiceConfig[],
+      databases: this.answers.databases.map(db => ({
+        name: db.name,
+        category: 'database',
+        type: db.type,
+        mode: db.mode,
+        strategy: db.strategy as any,
+        seeding: {
+          strategy: db.seeding as any,
+          command: db.seedCommand,
+          file: db.seedFile
+        },
+        local: db.local,
+        container: db.container
+      })) as DatabaseConfig[],
+      storages: this.answers.storages.map(storage => ({
+        name: storage.name,
+        category: 'storage',
+        type: storage.type,
+        mode: storage.mode,
+        ...(storage.container && { container: storage.container })
+      })) as StorageConfig[],
+      messaging: this.answers.messaging.map(messaging => ({
+        name: messaging.name,
+        category: 'messaging',
+        type: messaging.type,
+        mode: messaging.mode,
+        brokers: messaging.brokers?.split(',').map(b => b.trim()),
+        topics: messaging.topics?.split(',').map(t => t.trim()),
+        queues: messaging.queues?.split(',').map(q => q.trim()),
+        ...(messaging.container && { container: messaging.container })
+      })) as MessagingConfig[]
+    };
+  }
+
+  private async saveConfig(config: Integr8Config): Promise<void> {
+    const configFileName = `integr8.${this.answers.testType}.config.${this.answers.configFileType}`;
+    
+    if (fs.existsSync(configFileName)) {
       const { overwrite } = await inquirer.prompt([
         {
           type: 'confirm',
           name: 'overwrite',
-          message: this.prompts.errors.fileExists,
+          message: `${configFileName} already exists. Do you want to overwrite it?`,
           default: false
         }
       ]);
-
+      
       if (!overwrite) {
-        console.log('❌ Configuration creation cancelled.');
+        console.log('Configuration generation cancelled.');
         return;
       }
     }
 
     try {
-      const content = this.formatConfig(config, this.answers.configFileType);
-      fs.writeFileSync(filename, content);
-      console.log(`📄 Configuration saved to ${filename}`);
+      if (this.answers.configFileType === 'js') {
+        const formattedConfig = this.formatJsConfig(config);
+        const configContent = `module.exports = ${formattedConfig};`;
+        fs.writeFileSync(configFileName, configContent);
+      } else {
+        fs.writeFileSync(configFileName, JSON.stringify(config, null, 2));
+      }
       
-      // Create test directory with sample test file
-      await this.createTestDirectory();
+      console.log(`\n✅ Configuration file created: ${configFileName}`);
     } catch (error) {
-      throw new Error(`${this.prompts.errors.createError} ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`\n❌ Error creating configuration file: ${error}`);
+      throw error;
     }
-  }
-
-  private buildConfig(): Integr8Config {
-    const services: ServiceConfig[] = [];
-
-    // Add main app service
-    if (this.answers.appStructure === 'single') {
-      services.push({
-        name: this.answers.mainServiceName,
-        type: 'service',
-        mode: 'local', // Default to local mode
-        command: 'npm start', // Required command for local mode
-        ports: [3000],
-        healthcheck: this.answers.readinessEndpoint ? { command: this.answers.readinessPath } : undefined,
-        containerName: this.answers.mainServiceName,
-        dependsOn: this.answers.databases.filter(db => db !== 'none'),
-        logging: 'debug' // Enable debug logging for app service by default
-      });
-    }
-
-    // Add database services
-    for (const db of this.answers.databases) {
-      if (db === 'none') continue;
-
-      const dbConfig: ServiceConfig = {
-        name: db,
-        type: db as any,
-        mode: 'container', // Default to container mode for databases
-        containerName: `my-app-${db}`,
-        dependsOn: [],
-        environment: this.getDefaultEnvironment(db)
-      };
-
-      // Add database-specific configuration
-      const dbAnswers = this.answers.databaseConfigs[db];
-      if (dbAnswers) {
-        dbConfig.dbStrategy = dbAnswers.strategy as any;
-
-        // Add default environment mapping for databases
-        dbConfig.envMapping = this.getDefaultEnvMapping(db);
-        dbConfig.logging = 'debug'; // Enable debug logging for databases by default
-
-        if (dbAnswers.seeding !== 'none') {
-          dbConfig.seed = {
-            command: dbAnswers.seedCommand,
-            strategy: 'per-file',
-            restoreStrategy: 'rollback'
-          };
-        }
-      }
-
-      services.push(dbConfig);
-    }
-
-    // Add additional services
-    for (const service of this.answers.services) {
-      services.push({
-        name: service.name,
-        type: service.type as any,
-        image: service.image || this.getDefaultImage(service.type),
-        containerName: service.containerName
-      });
-    }
-
-    return { 
-      services,
-      testType: this.answers.testType as 'api' | 'e2e' | 'unit-db' | 'custom',
-      testDirectory: join(this.answers.testDirectory, this.answers.testType),
-      testFramework: 'jest',
-      urlPrefix: this.answers.urlPrefix
-    };
-  }
-
-  private getDefaultImage(serviceType: string): string {
-    const images: Record<string, string> = {
-      redis: 'redis:7-alpine',
-      mailhog: 'mailhog/mailhog:latest'
-    };
-    return images[serviceType] || 'custom:latest';
-  }
-
-  private getDefaultEnvironment(dbType: string): any {
-    const environments: Record<string, any> = {
-      postgres: {
-        POSTGRES_DB: 'myapp',
-        POSTGRES_USER: 'myuser',
-        POSTGRES_PASSWORD: 'mypassword'
-      },
-      mysql: {
-        MYSQL_DATABASE: 'myapp',
-        MYSQL_USER: 'myuser',
-        MYSQL_PASSWORD: 'mypassword',
-        MYSQL_ROOT_PASSWORD: 'rootpassword'
-      },
-      mongo: {
-        MONGO_INITDB_DATABASE: 'myapp',
-        MONGO_INITDB_ROOT_USERNAME: 'myuser',
-        MONGO_INITDB_ROOT_PASSWORD: 'mypassword'
-      },
-      redis: {
-        REDIS_PASSWORD: 'mypassword'
-      }
-    };
-    return environments[dbType] || {};
-  }
-
-  private getDefaultEnvMapping(dbType: string): any {
-    const mappings: Record<string, any> = {
-      postgres: {
-        host: 'DB_HOST',
-        port: 'DB_PORT',
-        username: 'DB_USERNAME',
-        password: 'DB_PASSWORD',
-        database: 'DB_NAME',
-        url: 'DATABASE_URL'
-      },
-      mysql: {
-        host: 'DB_HOST',
-        port: 'DB_PORT',
-        username: 'DB_USERNAME',
-        password: 'DB_PASSWORD',
-        database: 'DB_NAME',
-        url: 'DATABASE_URL'
-      },
-      mongo: {
-        host: 'MONGO_HOST',
-        port: 'MONGO_PORT',
-        username: 'MONGO_USERNAME',
-        password: 'MONGO_PASSWORD',
-        database: 'MONGO_DATABASE',
-        url: 'MONGO_URL'
-      },
-      redis: {
-        host: 'REDIS_HOST',
-        port: 'REDIS_PORT',
-        username: 'REDIS_USERNAME',
-        password: 'REDIS_PASSWORD',
-        url: 'REDIS_URL'
-      }
-    };
-    return mappings[dbType] || {
-      host: 'DB_HOST',
-      port: 'DB_PORT',
-      username: 'DB_USERNAME',
-      password: 'DB_PASSWORD',
-      database: 'DB_NAME',
-      url: 'DATABASE_URL'
-    };
-  }
-
-  private getConfigFilename(): string {
-    const testType = this.answers.testType || 'api';
-    const extensions: Record<string, string> = {
-      js: `integr8.${testType}.config.js`,
-      json: `integr8.${testType}.config.json`,
-      ts: `integr8.${testType}.config.ts`
-    };
-    return extensions[this.answers.configFileType] || `integr8.${testType}.config.js`;
-  }
-
-  private formatConfig(config: Integr8Config, type: string): string {
-    const templatePath = join(__dirname, '../../templates', `config.${type}.hbs`);
-    
-    if (!fs.existsSync(templatePath)) {
-      throw new Error(`Template not found: ${templatePath}`);
-    }
-    
-    const templateSource = fs.readFileSync(templatePath, 'utf8');
-    const template = Handlebars.compile(templateSource);
-    
-    // For JSON template, pass the full config object
-    if (type === 'json') {
-      return template({ config });
-    }
-    
-    // For JS/TS templates, spread the config properties
-    return template({ ...config });
-  }
-
-  private async createTestDirectory(): Promise<void> {
-    const testDir = this.answers.testDirectory;
-    const testType = this.answers.testType;
-    const testspath = join(testDir, testType);
-    // Create test directory if it doesn't exist
-    if (!fs.existsSync(testspath)) {
-      fs.mkdirSync(testspath, { recursive: true });
-      console.log(`📁 Created test directory: ${testspath}`);
-    }
-
-    // Create readiness endpoint test file if specified
-    if (this.answers.readinessEndpoint) {
-      const endpointName = this.extractEndpointName(this.answers.readinessPath);
-      const testFileName = `${endpointName}.get.test.ts`;
-      const testFile = join(testspath, testFileName);
-      
-      if (!fs.existsSync(testFile)) {
-        const testContent = this.generateReadinessTest(testspath, this.getConfigFilename());
-        fs.writeFileSync(testFile, testContent);
-        console.log(`📄 Created readiness test file: ${testFile}`);
-      }
-    } else {
-      // Create sample integration test file as fallback
-      const sampleTestFile = join(testspath, 'sample.integration.test.ts');
-      if (!fs.existsSync(sampleTestFile)) {
-        const sampleTestContent = this.generateSampleTest(testspath, this.getConfigFilename());
-        fs.writeFileSync(sampleTestFile, sampleTestContent);
-        console.log(`📝 Created sample test file: ${sampleTestFile}`);
-      }
-    }
-  }
-
-  private generateReadinessTest(testspath: string, configPath: string): string {
-    const { TestTemplateGenerator } = require('../../core/test-template-generator');
-    
-    const endpointPath = this.answers.readinessPath;
-    const urlPrefix = this.answers.urlPrefix || '';
-    const fullPath = buildFullPath(urlPrefix, endpointPath);
-    const endpointName = this.extractEndpointName(endpointPath);
-    
-    // Create a mock route info for the readiness endpoint
-    const routeInfo = {
-      method: 'GET',
-      path: fullPath,
-      controller: endpointName,
-      group: endpointName
-    };
-    
-    const generator = TestTemplateGenerator.createEndpointGenerator({
-      outputDir: testspath,
-      testFramework: 'jest',
-      includeSetup: true,
-      includeTeardown: true,
-      customImports: ['@soapjs/integr8'],
-      configPath: configPath,
-      routesConfig: {} // Empty for readiness test
-    });
-
-    const template = generator.generateSingleEndpointTemplate(routeInfo);
-    return template.content;
-  }
-
-  private generateSampleTest(testspath: string, configPath: string): string {
-    const { TestTemplateGenerator } = require('../../core/test-template-generator');
-    
-    const generator = TestTemplateGenerator.createSampleGenerator({
-      outputDir: testspath,
-      testFramework: 'jest',
-      includeSetup: true,
-      includeTeardown: true,
-      customImports: ['@soapjs/integr8'],
-      configPath: configPath
-    });
-
-    const template = generator.generateSampleTest();
-    return template.content;
-  }
-
-  /**
-   * Extracts a clean endpoint name from the path for use in file names and controller names
-   * Handles cases like:
-   * - "/health" -> "health"
-   * - "/ping" -> "ping"
-   * - "/health/status" -> "health"
-   * - "/is-ready" -> "is-ready"
-   * - "/api/v1/health" -> "health"
-   */
-  private extractEndpointName(endpointPath: string): string {
-    let normalizedPath = endpointPath.trim();
-    
-    // Remove leading slash
-    if (normalizedPath.startsWith('/')) {
-      normalizedPath = normalizedPath.substring(1);
-    }
-    
-    // Remove trailing slash
-    if (normalizedPath.endsWith('/')) {
-      normalizedPath = normalizedPath.slice(0, -1);
-    }
-    
-    // Split by slash and take the last meaningful part
-    const parts = normalizedPath.split('/').filter(part => part.length > 0);
-    
-    if (parts.length === 0) {
-      return 'root';
-    }
-    
-    // Return the last part (the actual endpoint name)
-    return parts[parts.length - 1];
   }
 }

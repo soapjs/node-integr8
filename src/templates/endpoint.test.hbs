@@ -7,27 +7,7 @@ import { {{this}} } from '{{@key}}';
 {{/each}}
 {{/if}}
 
-{{#if setup}}
-// Global setup
-beforeAll(async () => {
-  {{#if (endsWith configPath ".json")}}
-  const config = require('{{relativePath testFilePath configPath}}');
-  {{else}}
-  const configModule = require('{{relativePath testFilePath configPath}}');
-  const config = configModule.default || configModule;
-  {{/if}}
-  
-  await setupEnvironment(config);
-});
-
-{{/if}}
-{{#if teardown}}
-// Global teardown
-afterAll(async () => {
-  await teardownEnvironment();
-});
-
-{{/if}}
+{{> setup-teardown}}
 describe('{{endpoint.method}} {{endpoint.path}}', () => {
   {{#if endpoint.testScenarios}}
   {{#each endpoint.testScenarios}}
@@ -36,6 +16,8 @@ describe('{{endpoint.method}} {{endpoint.path}}', () => {
     
     {{#if requestData}}
     const requestData = {{json requestData}};
+    {{else}}
+    const requestData = {};
     {{/if}}
     {{#if queryParams}}
     const queryParams = {{json queryParams}};
@@ -45,19 +27,19 @@ describe('{{endpoint.method}} {{endpoint.path}}', () => {
     {{/if}}
     
     {{#if (eq ../endpoint.method "GET")}}
-    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}'{{#if queryParams}}, { params: queryParams }{{/if}});
+    const response = await ctx.getHttp().{{lowercase ../endpoint.method}}('{{../endpoint.path}}'{{#if queryParams}}, { params: queryParams }{{/if}});
     {{/if}}
     {{#if (eq ../endpoint.method "POST")}}
-    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
+    const response = await ctx.getHttp().{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
     {{/if}}
     {{#if (eq ../endpoint.method "PUT")}}
-    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
+    const response = await ctx.getHttp().{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
     {{/if}}
     {{#if (eq ../endpoint.method "PATCH")}}
-    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
+    const response = await ctx.getHttp().{{lowercase ../endpoint.method}}('{{../endpoint.path}}', requestData);
     {{/if}}
     {{#if (eq ../endpoint.method "DELETE")}}
-    const response = await ctx.http.{{lowercase ../endpoint.method}}('{{../endpoint.path}}');
+    const response = await ctx.getHttp().{{lowercase ../endpoint.method}}('{{../endpoint.path}}');
     {{/if}}
     
     expect(response.status).toBe({{expectedStatus}});
@@ -66,73 +48,5 @@ describe('{{endpoint.method}} {{endpoint.path}}', () => {
     {{/if}}
   });
   {{/each}}
-  {{else}}
-  {{#if (eq endpoint.method "GET")}}
-  test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
-    const ctx = getEnvironmentContext();
-    const response = await ctx.http.{{lowercase endpoint.method}}('{{endpoint.path}}');
-    
-    {{#if (eq endpoint.path "/health")}}
-    expect(response.status).toBe(200);
-    expect(response.data).toHaveProperty('status', 'ok');
-    {{else}}
-    // TODO: Add proper assertions
-    expect(response.status).toBe(200);
-    expect(true).toBe(false); // This test needs implementation
-    {{/if}}
-  });
-  {{/if}}
-  {{/if}}
-  {{#if (eq endpoint.method "POST")}}
-  test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
-    const ctx = getEnvironmentContext();
-    const requestData = {
-      // TODO: Add request data
-    };
-    
-    const response = await ctx.http.{{lowercase endpoint.method}}('{{endpoint.path}}', requestData);
-    
-    // TODO: Add proper assertions
-    expect(response.status).toBe(201);
-    expect(true).toBe(false); // This test needs implementation
-  });
-  {{/if}}
-  {{#if (eq endpoint.method "PUT")}}
-  test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
-    const ctx = getEnvironmentContext();
-    const requestData = {
-      // TODO: Add request data
-    };
-    
-    const response = await ctx.http.{{lowercase endpoint.method}}('{{endpoint.path}}', requestData);
-    
-    // TODO: Add proper assertions
-    expect(response.status).toBe(200);
-    expect(true).toBe(false); // This test needs implementation
-  });
-  {{/if}}
-  {{#if (eq endpoint.method "DELETE")}}
-  test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
-    const ctx = getEnvironmentContext();
-    const response = await ctx.http.{{lowercase endpoint.method}}('{{endpoint.path}}');
-    
-    // TODO: Add proper assertions
-    expect(response.status).toBe(204);
-    expect(true).toBe(false); // This test needs implementation
-  });
-  {{/if}}
-  {{#if (eq endpoint.method "PATCH")}}
-  test('should handle {{endpoint.method}} {{endpoint.path}}', async () => {
-    const ctx = getEnvironmentContext();
-    const requestData = {
-      // TODO: Add request data
-    };
-    
-    const response = await ctx.http.{{lowercase endpoint.method}}('{{endpoint.path}}', requestData);
-    
-    // TODO: Add proper assertions
-    expect(response.status).toBe(200);
-    expect(true).toBe(false); // This test needs implementation
-  });
   {{/if}}
 });

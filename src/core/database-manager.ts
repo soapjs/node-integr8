@@ -1,19 +1,41 @@
-import { IDatabaseManager, Transaction, ServiceConfig, DBStrategy } from '../types';
+import { IDatabaseManager, ITransaction, DBStrategy, DatabaseConfig } from '../types';
 import { DBStateManager } from './db-state-manager';
+import { DatabaseTransaction } from './database-transaction';
+import { createServiceLogger } from '../utils/logger';
 
 export class DatabaseManager implements IDatabaseManager {
-  private serviceConfig: ServiceConfig | undefined;
+  private config: DatabaseConfig | undefined;
   private workerId: string;
   private stateManager: DBStateManager;
   private connectionString!: string;
   private currentSavepoint?: string;
   private currentSchema?: string;
   private currentDatabase?: string;
+  private logger: any;
 
-  constructor(serviceConfig: ServiceConfig | undefined, workerId: string, connectionStrings: Record<string, string> = {}) {
-    this.serviceConfig = serviceConfig;
+  constructor(
+    config: DatabaseConfig | undefined, 
+    workerId: string, 
+    connectionStrings: Record<string, string> = {},
+    strategy: DBStrategy = 'savepoint'
+  ) {
+    this.config = config;
     this.workerId = workerId;
-    this.stateManager = new DBStateManager(serviceConfig, workerId, connectionStrings);
+    this.stateManager = new DBStateManager(config as any, workerId, connectionStrings);
+    
+    // Create logger for this service
+    if (config) {
+      this.logger = createServiceLogger(config, `database-manager-${workerId}`);
+    } else {
+      // Fallback logger when no service config
+      this.logger = {
+        debug: () => {},
+        info: () => {},
+        log: () => {},
+        warn: () => {},
+        error: () => {}
+      };
+    }
   }
 
   async initialize(): Promise<void> {
@@ -24,11 +46,11 @@ export class DatabaseManager implements IDatabaseManager {
   async query(sql: string, params?: any[]): Promise<any> {
     // This would be implemented based on the database type
     // For now, return a mock implementation
-    console.log(`Executing query: ${sql}`, params);
+    this.logger.debug(`Executing query: ${sql}`, params);
     return { rows: [], rowCount: 0 };
   }
 
-  async transaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (tx: ITransaction) => Promise<T>): Promise<T> {
     const tx = new DatabaseTransaction(this.connectionString);
     
     try {
@@ -43,8 +65,8 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   async snapshot(name: string): Promise<void> {
-    const dbStrategy = this.serviceConfig?.dbStrategy || 'savepoint';
-    switch (dbStrategy) {
+    const strategy = this.config?.strategy || 'savepoint';
+    switch (strategy) {
       case 'savepoint':
         this.currentSavepoint = await this.stateManager.createSavepoint();
         break;
@@ -62,32 +84,13 @@ export class DatabaseManager implements IDatabaseManager {
         await this.stateManager.createSnapshot(name);
         break;
       default:
-        // Handle hybrid strategies
-        if (dbStrategy === 'hybrid-savepoint-schema') {
-          // Use savepoint for fast rollback, schema for isolation
-          this.currentSavepoint = await this.stateManager.createSavepoint();
-          const hybridSchemaName = `${name}_${this.workerId}`;
-          await this.stateManager.createSchema(hybridSchemaName);
-          this.currentSchema = hybridSchemaName;
-        } else if (dbStrategy === 'hybrid-schema-database') {
-          // Use schema for structure, database for complete isolation
-          const hybridDbName = `${name}_${this.workerId}`;
-          await this.stateManager.createDatabase(hybridDbName);
-          this.currentDatabase = hybridDbName;
-        } else if (dbStrategy === 'transactional-schema') {
-          // Use transactions within schema for better performance
-          await this.stateManager.beginTransaction();
-          const transSchemaName = `${name}_${this.workerId}`;
-          await this.stateManager.createSchema(transSchemaName);
-          this.currentSchema = transSchemaName;
-        }
         break;
     }
   }
 
   async restore(name: string): Promise<void> {
-    const dbStrategy = this.serviceConfig?.dbStrategy || 'savepoint';
-    switch (dbStrategy) {
+    const strategy = this.config?.strategy || 'savepoint';
+    switch (strategy) {
       case 'savepoint':
         if (this.currentSavepoint) {
           await this.stateManager.rollbackToSavepoint(this.currentSavepoint);
@@ -109,27 +112,6 @@ export class DatabaseManager implements IDatabaseManager {
         await this.stateManager.restoreSnapshot(name);
         break;
       default:
-        // Handle hybrid strategies
-        if (dbStrategy === 'hybrid-savepoint-schema') {
-          if (this.currentSavepoint) {
-            await this.stateManager.rollbackToSavepoint(this.currentSavepoint);
-          }
-          if (this.currentSchema) {
-            await this.stateManager.dropSchema(this.currentSchema);
-            this.currentSchema = undefined;
-          }
-        } else if (dbStrategy === 'hybrid-schema-database') {
-          if (this.currentDatabase) {
-            await this.stateManager.dropDatabase(this.currentDatabase);
-            this.currentDatabase = undefined;
-          }
-        } else if (dbStrategy === 'transactional-schema') {
-          await this.stateManager.rollbackTransaction();
-          if (this.currentSchema) {
-            await this.stateManager.dropSchema(this.currentSchema);
-            this.currentSchema = undefined;
-          }
-        }
         break;
     }
   }
@@ -139,20 +121,18 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   getConnectionString(): string {
-    if (!this.serviceConfig) {
+    if (!this.config) {
       throw new Error('No database service configuration found');
     }
 
-    const serviceType = this.serviceConfig.type;
-    const port = this.serviceConfig.ports?.[0] || this.getDefaultPort(serviceType);
+    const serviceType = this.config.category;
+    const port = this.getDefaultPort(serviceType);
 
     switch (serviceType) {
-      case 'postgres':
+      case 'database':
+        // For database type, we need to determine the actual database type
+        // This is a simplified approach - in real implementation you'd have more specific config
         return `postgresql://test:test@localhost:${port}/test`;
-      case 'mysql':
-        return `mysql://test:test@localhost:${port}/test`;
-      case 'mongo':
-        return `mongodb://localhost:${port}/test`;
       default:
         throw new Error(`Unsupported database type: ${serviceType}`);
     }
@@ -160,52 +140,10 @@ export class DatabaseManager implements IDatabaseManager {
 
   private getDefaultPort(serviceType: string): number {
     switch (serviceType) {
-      case 'postgres':
-        return 5432;
-      case 'mysql':
-        return 3306;
-      case 'mongo':
-        return 27017;
+      case 'database':
+        return 5432; // Default to PostgreSQL port
       default:
         return 5432;
     }
-  }
-}
-
-class DatabaseTransaction implements Transaction {
-  private connectionString: string;
-  private isActive: boolean = false;
-
-  constructor(connectionString: string) {
-    this.connectionString = connectionString;
-  }
-
-  async begin(): Promise<void> {
-    // Implementation would depend on the database driver
-    this.isActive = true;
-  }
-
-  async query(sql: string, params?: any[]): Promise<any> {
-    if (!this.isActive) {
-      throw new Error('Transaction not active');
-    }
-    // Implementation would depend on the database driver
-    return { rows: [], rowCount: 0 };
-  }
-
-  async commit(): Promise<void> {
-    if (!this.isActive) {
-      throw new Error('Transaction not active');
-    }
-    // Implementation would depend on the database driver
-    this.isActive = false;
-  }
-
-  async rollback(): Promise<void> {
-    if (!this.isActive) {
-      throw new Error('Transaction not active');
-    }
-    // Implementation would depend on the database driver
-    this.isActive = false;
   }
 }

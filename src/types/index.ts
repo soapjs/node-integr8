@@ -1,118 +1,203 @@
-export interface Integr8Config {
+export type TestType = 'api' | 'e2e' | 'integration' | 'custom';
+export type TestFramework = 'jest' | 'vitest';
+export type SeedStrategy = 'once' | 'per-file' | 'per-test' | 'custom';
+export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot' | 'custom';
+export type DBRestore = 'none' | 'rollback' | 'reset' | 'snapshot';
+export type DBIsolation = 'schema' | 'db' | 'none';
+export type MessagingType = 'kafka' | 'rabbitmq' | 'redis-streams' | 'grpc' | 'nats' | 'sqs' | 'pubsub' | string;
+export type AuthType = 'jwt' | 'oauth2' | 'apikey' | 'basic' | 'session' | string;
+
+export type HttpRequestOptions = {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  headers?: Record<string, string>;
+  body?: any;
+  timeout?: number;
+  retries?: number;
+  retryDelay?: number;
+}
+
+export type HttpResponse = {
+  status: number;
+  headers: Record<string, string>;
+  data: any;
+  duration: number;
+}
+
+export type Integr8Config = {
   services: ServiceConfig[];
-  testType?: 'api' | 'e2e' | 'unit-db' | 'custom';
-  testDirectory?: string;
+  databases?: DatabaseConfig[];
+  messaging?: MessagingConfig[];
+  storages?: StorageConfig[];
+  testType?: TestType;
+  testDir?: string;
   testFramework?: 'jest' | 'vitest';
-  testScenarios?: TestScenario[];
-  testMode?: TestModeConfig;
-  urlPrefix?: string;
   testTimeout?: number;
   setupTimeout?: number;
   teardownTimeout?: number;
-  adapters?: AdapterConfig[];
+  endpointDiscovery?: EndpointDiscoveryConfig;
 }
 
-export interface ServiceConfig {
-  name: string;
-  type: 'service' | 'postgres' | 'mysql' | 'mongo' | 'redis' | 'kafka' | 'mailhog' | 'custom';
-  mode?: 'local' | 'container';
-  adapter?: AdapterConfig;
-  // For container services only:
-  image?: string;
-  command?: string;
+export type EndpointDiscoveryConfig = {
+  command: string;
+  timeout: number;
+};
 
-  ports?: number[];
-  environment?: Record<string, string>;
+export type LocalProcessConfig = {
+  command: string;
+  cwd: string;
+  args?: string[];
+}
+
+export type ContainerConfig = {
+  image: string;
+  containerName: string;
   volumes?: VolumeConfig[];
-  healthcheck?: HealthCheckConfig;
+  ports?: { host: number; container: number }[];
+  environment?: Record<string, string>;
+  envMapping?: Record<string, string>;
+}
+
+export interface ComponentConfig {
+  name: string;
+  category: 'service' | 'database' | 'storage' | 'messaging';
+  type: string;
+  adapter?: AdapterConfig;
+  local?: LocalProcessConfig
+  container?: ContainerConfig;
+  environment?: Record<string, string>;
+  readiness?: ReadinessConfig;
   dependsOn?: string[];
-  containerName?: string;
-  workingDirectory?: string;
-  
-  // For database services only:
-  dbStrategy?: 'savepoint' | 'schema' | 'database' | 'snapshot' | 'hybrid-savepoint-schema' | 'hybrid-schema-database' | 'transactional-schema';
-  parallelIsolation?: 'schema' | 'db' | 'none';
-  seed?: SeedConfig;
-  
-  // Environment variable mapping for application services
-  envMapping?: EnvironmentMapping;
-  
-  // Logging control for debugging
   logging?: 'debug' | 'error' | 'log' | 'info' | 'warn' | boolean;
-  
-  // Authentication configuration (applies to application services only, not database services)
+}
+
+export type HttpConfig = {
+  baseUrl: string;
+  port?: number;
+  prefix?: string;
+  framework?: string;
+}
+
+export type SocketConfig = {
+  baseUrl: string;
+  port?: number;
+  prefix?: string;
+  framework?: string;
+}
+
+export type ServiceConfig = ComponentConfig & {
+  category: 'service';
+  http?: HttpConfig;
+  ws?: SocketConfig;
   auth?: AuthConfig;
+  testMode?: ServiceTestModeConfig;
 }
 
-export interface EnvironmentMapping {
-  host?: string;        // Environment variable name for host (e.g., 'DB_HOST')
-  port?: string;        // Environment variable name for port (e.g., 'DB_PORT')
-  username?: string;    // Environment variable name for username (e.g., 'DB_USERNAME')
-  password?: string;    // Environment variable name for password (e.g., 'DB_PASSWORD')
-  database?: string;    // Environment variable name for database name (e.g., 'DB_NAME')
-  url?: string;         // Environment variable name for full connection URL (e.g., 'DATABASE_URL')
+export type DatabaseConfig = ComponentConfig & {
+  category: 'database';
+  strategy?: DBStrategy;
+  isolation?: DBIsolation;
+  seed?: SeedConfig;
+  container?: ContainerConfig & { envMapping?: DatabaseEnvMapping};
 }
 
-export interface VolumeConfig {
+export type StorageConfig = ComponentConfig & {
+  category: 'storage';
+  container?: ContainerConfig & { envMapping?: StorageEnvMapping};
+}
+
+export type MessagingConfig = ComponentConfig & {
+  category: 'messaging';
+  container?: ContainerConfig & { envMapping?: MessagingEnvMapping};
+  connection?: {
+    brokers?: string[];
+    clusterId?: string;
+    endpoint?: string; 
+    region?: string;   
+  }
+
+  topics?: string[];           
+  queues?: string[];           
+  streams?: string[];          
+  services?: string[];         
+  
+  auth?: {
+    username?: string;
+    password?: string;
+    apiKey?: string;
+    certificates?: string[];
+  }
+  
+  testMode?: {
+    mockPublishers?: boolean;  
+    captureMessages?: boolean; 
+    isolation?: 'topic' | 'queue' | 'stream' | 'none';
+  }
+}
+
+export type DatabaseEnvMapping = {
+  host?: string;
+  port?: string;
+  username?: string;
+  password?: string;
+  database?: string;
+  url?: string;
+}
+
+export type MessagingEnvMapping = {
+  brokers?: string[];
+  clusterId?: string;
+  endpoint?: string;
+  region?: string;
+}
+
+export type StorageEnvMapping = {
+  endpoint?: string;
+  region?: string;
+  accessKey?: string;
+  secretKey?: string;
+}
+
+export type VolumeConfig = {
   host: string;
   container: string;
   mode?: 'ro' | 'rw';
 }
 
-export interface HealthCheckConfig {
-  command: string;
+export type ReadinessConfig = {
+  command?: string;
+  endpoint?: string;
   interval?: number;
   timeout?: number;
   retries?: number;
-  startPeriod?: number;
 }
 
-
-export interface SeedConfig {
-  command?: string;
+export type SeedConfig = {
+  command?: string | ((...args: any[]) => void);
   timeout?: number;
-  entities?: any[];
-  typeorm?: TypeORMSeedConfig;
-  strategy?: 'once' | 'per-file' | 'per-test' | 'custom';
-  restoreStrategy?: 'none' | 'rollback' | 'reset' | 'snapshot';
-  customScenarios?: SeedScenario[];
+  condition?: (...args: any[]) => boolean;
+  strategy?: SeedStrategy;
+  restore?: DBRestore;
 }
 
-export interface SeedScenario {
-  name: string;
-  description?: string;
-  condition?: (context: any) => boolean;
-  seedData?: any[];
-  seedCommand?: string;
-  restoreAfter?: boolean;
-}
-
-export interface TypeORMSeedConfig {
-  entities: any[];
-  data?: any[];
-  clearBeforeSeed?: boolean;
-  runMigrations?: boolean;
-}
-
-export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot' | 'hybrid-savepoint-schema' | 'hybrid-schema-database' | 'transactional-schema';
-
-export interface AdapterConfig {
+export type AdapterConfig = {
   type: string;
   config?: Record<string, any>;
 }
 
-export interface TestModeConfig {
+export type ServiceTestModeConfig = {
   controlPort?: number;
   overrideEndpoint?: string;
   enableFakeTimers?: boolean;
 }
 
-export interface IEnvironmentContext {
-  http?: IHttpClient;
-  db: IDatabaseManager;
-  ctx: ITestContext;
-  clock?: IClockManager;
-  bus?: IEventBusManager;
+export type IEnvironmentContext = {
+  getHttp(serviceName: string): IHttpClient;
+  getDb(serviceName: string): IDatabaseManager;
+  getMessaging(serviceName: string): IMessagingManager;
+  getStorage(serviceName: string): IStorageManager;
+  getCtx(): ITestContext;
+  getClock(): IClockManager;
+  getBus(): IEventBusManager;
 }
 
 export interface ITestContext {
@@ -143,33 +228,16 @@ export interface IAuthOverrideBuilder extends IOverrideBuilder {
   asGuest(): Promise<void>;
 }
 
-
-export interface HttpRequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  headers?: Record<string, string>;
-  body?: any;
-  timeout?: number;
-  retries?: number;
-  retryDelay?: number;
-}
-
-export interface HttpResponse {
-  status: number;
-  headers: Record<string, string>;
-  data: any;
-  duration: number;
-}
-
 export interface IDatabaseManager {
   query(sql: string, params?: any[]): Promise<any>;
-  transaction<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: ITransaction) => Promise<T>): Promise<T>;
   snapshot(name: string): Promise<void>;
   restore(name: string): Promise<void>;
   reset(): Promise<void>;
   getConnectionString(): string;
 }
 
-export interface Transaction {
+export interface ITransaction {
   query(sql: string, params?: any[]): Promise<any>;
   commit(): Promise<void>;
   rollback(): Promise<void>;
@@ -182,7 +250,6 @@ export interface IOverrideManager {
   repository(repositoryName: string): IOverrideBuilder;
   dataSource(dataSourceName: string): IOverrideBuilder;
   provider(providerName: string): IOverrideBuilder;
-  // Auth-specific helpers
   auth(middlewareName?: string): IAuthOverrideBuilder;
   clear(): Promise<void>;
 }
@@ -220,12 +287,46 @@ export interface ScenarioDefinition {
   retries?: number;
 }
 
-export interface IEnvironmentOrchestrator {
-  start(): Promise<void>;
+export interface IRunner {
+  start(fast: boolean): Promise<void>;
   stop(): Promise<void>;
-  isReady(): Promise<boolean>;
-  getServiceUrl(serviceName: string, port?: number): string;
-  getAppUrl(): string;
+  isReady(serviceName: string): Promise<boolean>;
+}
+
+export interface IOrchestrator {
+  start(fast: boolean): Promise<void>;
+  stop(): Promise<void>;
+  isReady(serviceName: string): Promise<boolean>;
+  startService(service: ServiceConfig | DatabaseConfig | MessagingConfig | StorageConfig, fast: boolean): Promise<void>;
+  stopService(service: ServiceConfig | DatabaseConfig | MessagingConfig | StorageConfig): Promise<void>;
+}
+
+export interface IServiceManager {
+  start(fast: boolean): Promise<void>;
+  stop(): Promise<void>;
+  isServiceReady(serviceName: string): Promise<boolean>;
+  getServiceStatus(serviceName: string): ServiceStatus;
+}
+
+export enum ServiceStatus {
+  PENDING = 'pending',
+  STARTING = 'starting', 
+  RUNNING = 'running',
+  FAILED = 'failed',
+  STOPPING = 'stopping',
+  STOPPED = 'stopped'
+}
+
+// Event types for service lifecycle
+export interface ServiceEvent {
+  serviceName: string;
+  service: ServiceConfig | DatabaseConfig | MessagingConfig | StorageConfig;
+  error?: string;
+}
+
+export interface IEnvironmentOrchestrator extends IOrchestrator {
+  // isReady(): Promise<boolean>;
+  // getServiceUrl(serviceName: string, port?: number): string;
   getContext(): IEnvironmentContext;
 }
 
@@ -245,6 +346,24 @@ export interface IDBStateManager {
   getPerformanceMetrics(): PerformanceMetrics[];
   getAverageOperationTime(operation: string): number;
   getStrategyPerformance(): Record<string, number>;
+}
+
+export interface IMessagingManager {
+  publish(topic: string, message: any): Promise<void>;
+  subscribe(topic: string, handler: (message: any) => void): Promise<void>;
+  unsubscribe(topic: string, handler: (message: any) => void): Promise<void>;
+  send(queue: string, message: any): Promise<void>;
+  receive(queue: string, handler: (message: any) => void): Promise<void>;
+  clear(): Promise<void>;
+}
+
+export interface IStorageManager {
+  upload(key: string, data: Buffer | string): Promise<void>;
+  download(key: string): Promise<Buffer>;
+  delete(key: string): Promise<void>;
+  list(prefix?: string): Promise<string[]>;
+  exists(key: string): Promise<boolean>;
+  clear(): Promise<void>;
 }
 
 export interface Adapter {
@@ -288,11 +407,8 @@ export interface PerformanceMetrics {
 }
 
 export interface AuthConfig {
-  // Override configurations for test environment (bypasses real authentication)
   override?: AuthOverrideConfig[];
-  // Authentication profiles for stage/prod environments (uses real credentials)
   profiles?: AuthProfile[];
-  // Default profile to use when no specific profile is specified
   defaultProfile?: string;
 }
 
@@ -301,30 +417,20 @@ export interface AuthOverrideConfig {
   middleware?: string;
   mockUser?: any;
   mockPermissions?: string[];
-  condition?: (context: any) => boolean; // When to use this override
+  condition?: (context: any) => boolean; 
 }
 
 export interface AuthProfile {
   name: string;
-  type: 'jwt' | 'oauth2' | 'apikey' | 'basic' | 'session';
-  
-  // OAuth2 configuration
+  type: AuthType;
   clientId?: string;
   clientSecret?: string;
   tokenUrl?: string;
   scope?: string;
-  
-  // JWT configuration
   token?: string;
-  
-  // API Key configuration
   apiKey?: string;
   headerName?: string;
-  
-  // Basic Auth configuration
   username?: string;
   password?: string;
-  
-  // Session configuration
   cookies?: Record<string, string>;
 }

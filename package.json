@@ -1,6 +1,6 @@
 {
   "name": "@soapjs/integr8",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Framework-agnostic integration testing with Testcontainers",
   "homepage": "https://docs.soapjs.com",
   "repository": "https://github.com/soapjs/node-integr8",
@@ -48,6 +48,7 @@
     "axios": "^1.6.2",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
+    "dockerode": "^4.0.2",
     "dotenv": "^16.3.1",
     "handlebars": "^4.7.8",
     "inquirer": "^8.2.6",
@@ -55,6 +56,7 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
+    "@types/dockerode": "^3.3.25",
     "@types/inquirer": "^8.2.10",
     "@types/jest": "^29.5.8",
     "@types/node": "^20.10.0",

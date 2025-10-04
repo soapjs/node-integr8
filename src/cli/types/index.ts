@@ -19,22 +19,63 @@ export interface PromptsConfig {
     question: string;
     choices: PromptChoice[];
   };
-  appStructure: {
-    question: string;
-    choices: PromptChoice[];
-  };
   testConfig: {
-    testDirectory: PromptConfig;
-    mainServiceName: PromptConfig;
-    readinessEndpoint: PromptConfig;
-    readinessPath: PromptConfig;
-    urlPrefix: PromptConfig;
+    testDir: PromptConfig;
   };
-  databaseSelection: {
+  componentSelection: {
     question: string;
     choices: PromptChoice[];
+  };
+  serviceConfig: {
+    name: PromptConfig;
+    mode: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    communicationType: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    httpConfig: {
+      baseUrl: PromptConfig;
+      port: PromptConfig;
+      prefix: PromptConfig;
+    };
+    wsConfig: {
+      baseUrl: PromptConfig;
+      port: PromptConfig;
+      prefix: PromptConfig;
+    };
+    framework: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    readiness: {
+      enabled: PromptConfig;
+      endpoint: PromptConfig;
+      command: PromptConfig;
+    };
+    localConfig: {
+      command: PromptConfig;
+      workingDirectory: PromptConfig;
+    };
+    containerConfig: {
+      image: PromptConfig;
+      containerName: PromptConfig;
+      ports: PromptConfig;
+      environment: PromptConfig;
+    };
   };
   databaseConfig: {
+    name: PromptConfig;
+    mode: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    type: {
+      question: string;
+      choices: PromptChoice[];
+    };
     strategy: {
       question: string;
       choices: PromptChoice[];
@@ -45,17 +86,76 @@ export interface PromptsConfig {
     };
     seedCommand: PromptConfig;
     seedFile: PromptConfig;
+    localConfig: {
+      host: PromptConfig;
+      port: PromptConfig;
+      username: PromptConfig;
+      password: PromptConfig;
+    };
+    containerConfig: {
+      image: PromptConfig;
+      containerName: PromptConfig;
+      ports: PromptConfig;
+      environment: PromptConfig;
+    };
+    envMapping: {
+      host: PromptConfig;
+      port: PromptConfig;
+      username: PromptConfig;
+      password: PromptConfig;
+      database: PromptConfig;
+      url: PromptConfig;
+    };
   };
-  additionalServices: {
-    question: string;
-    default: boolean;
-    serviceType: {
+  storageConfig: {
+    name: PromptConfig;
+    type: PromptConfig;
+    mode: {
       question: string;
       choices: PromptChoice[];
     };
-    serviceName: PromptConfig;
-    containerName: PromptConfig;
-    image: PromptConfig;
+    containerConfig: {
+      image: PromptConfig;
+      containerName: PromptConfig;
+      ports: PromptConfig;
+      environment: PromptConfig;
+    };
+    envMapping: {
+      endpoint: PromptConfig;
+      region: PromptConfig;
+      accessKey: PromptConfig;
+      secretKey: PromptConfig;
+    };
+  };
+  messagingConfig: {
+    name: PromptConfig;
+    type: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    mode: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    containerConfig: {
+      image: PromptConfig;
+      containerName: PromptConfig;
+      ports: PromptConfig;
+      environment: PromptConfig;
+    };
+    envMapping: {
+      brokers: PromptConfig;
+      clusterId: PromptConfig;
+      endpoint: PromptConfig;
+      region: PromptConfig;
+    };
+    brokers: PromptConfig;
+    topics: PromptConfig;
+    queues: PromptConfig;
+  };
+  addMoreComponents: {
+    question: string;
+    default: boolean;
   };
   configFile: {
     question: string;
@@ -74,25 +174,114 @@ export interface PromptsConfig {
 
 export interface InitAnswers {
   testType: string;
-  appStructure: string;
-  testDirectory: string;
-  mainServiceName: string;
-  readinessEndpoint: boolean;
-  readinessPath: string;
-  urlPrefix: string;
-  databases: string[];
-  additionalServices: boolean;
-  services: Array<{
-    type: string;
-    name: string;
-    containerName: string;
-    image?: string;
-  }>;
+  testDir: string;
   configFileType: string;
-  databaseConfigs: Record<string, {
+  components: Array<{
+    category: 'service' | 'database' | 'storage' | 'messaging';
+    name: string;
+    config: any;
+  }>;
+  services: Array<{
+    name: string;
+    category: 'service';
+    type: string;
+    mode: 'local' | 'container';
+    communicationType: 'http' | 'ws' | 'custom';
+    http?: {
+      baseUrl: string;
+      port: number;
+      prefix: string;
+    };
+    ws?: {
+      baseUrl: string;
+      port: number;
+      prefix: string;
+    };
+    framework?: string;
+    readiness?: {
+      enabled: boolean;
+      endpoint?: string;
+      command?: string;
+    };
+    local?: {
+      command: string;
+      workingDirectory: string;
+      args?: string[];
+    };
+    container?: {
+      image: string;
+      containerName: string;
+      ports?: { host: number; container: number }[];
+      environment?: Record<string, string>;
+    };
+  }>;
+  databases: Array<{
+    name: string;
+    category: 'database';
+    mode: 'local' | 'container';
+    type: string;
     strategy: string;
     seeding: string;
     seedCommand?: string;
     seedFile?: string;
+    local?: {
+      host: string;
+      port: string;
+      username: string;
+      password: string;
+    };
+    container?: {
+      image: string;
+      containerName: string;
+      ports?: { host: number; container: number }[];
+      environment?: Record<string, string>;
+      envMapping?: {
+        host?: string;
+        port?: string;
+        username?: string;
+        password?: string;
+        database?: string;
+        url?: string;
+      };
+    };
+  }>;
+  storages: Array<{
+    name: string;
+    category: 'storage';
+    type: string;
+    mode?: 'local' | 'container';
+    container?: {
+      image: string;
+      containerName: string;
+      ports?: { host: number; container: number }[];
+      environment?: Record<string, string>;
+      envMapping?: {
+        endpoint?: string;
+        region?: string;
+        accessKey?: string;
+        secretKey?: string;
+      };
+    };
+  }>;
+  messaging: Array<{
+    name: string;
+    category: 'messaging';
+    type: string;
+    mode?: 'local' | 'container';
+    brokers?: string;
+    topics?: string;
+    queues?: string;
+    container?: {
+      image: string;
+      containerName: string;
+      ports?: { host: number; container: number }[];
+      environment?: Record<string, string>;
+      envMapping?: {
+        brokers?: string;
+        clusterId?: string;
+        endpoint?: string;
+        region?: string;
+      };
+    };
   }>;
 }

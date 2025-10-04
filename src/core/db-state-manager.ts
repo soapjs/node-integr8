@@ -1,5 +1,5 @@
-import { IDBStateManager, ServiceConfig, DBStrategy, SeedConfig, PerformanceMetrics } from '../types';
-import { TypeORMAdapter } from '../adapters/typeorm-adapter';
+import { IDBStateManager, DatabaseConfig, PerformanceMetrics } from '../types';
+import { createServiceLogger } from '../utils/logger';
 
 interface SavepointInfo {
   sql: string;
@@ -8,7 +8,7 @@ interface SavepointInfo {
 }
 
 export class DBStateManager implements IDBStateManager {
-  private serviceConfig: ServiceConfig | undefined;
+  private serviceConfig: DatabaseConfig | undefined;
   private workerId: string;
   private savepoints: Map<string, SavepointInfo> = new Map();
   private schemas: Set<string> = new Set();
@@ -17,22 +17,37 @@ export class DBStateManager implements IDBStateManager {
   private currentTransaction: string | null = null;
   private performanceMetrics: PerformanceMetrics[] = [];
   private connectionStrings: Record<string, string>;
+  private logger: any;
 
-  constructor(serviceConfig: ServiceConfig | undefined, workerId: string, connectionStrings: Record<string, string> = {}) {
+  constructor(serviceConfig: DatabaseConfig | undefined, workerId: string, connectionStrings: Record<string, string> = {}) {
     this.serviceConfig = serviceConfig;
     this.workerId = workerId;
     this.connectionStrings = connectionStrings;
+    
+    // Create logger for this service
+    if (serviceConfig) {
+      this.logger = createServiceLogger(serviceConfig, `db-state-manager-${workerId}`);
+    } else {
+      // Fallback logger when no service config
+      this.logger = {
+        debug: () => {},
+        info: () => {},
+        log: () => {},
+        warn: () => {},
+        error: () => {}
+      };
+    }
   }
 
   async initialize(): Promise<void> {
-    console.log(`Initializing DB State Manager for worker ${this.workerId}`);
+    this.logger.info(`Initializing DB State Manager for worker ${this.workerId}`);
     
     // Run seed command if configured
     if (this.serviceConfig?.seed) {
       await this.runSeedCommand();
     }
     
-    console.log(`DB State Manager initialized for worker ${this.workerId}`);
+    this.logger.info(`DB State Manager initialized for worker ${this.workerId}`);
   }
 
   async createSavepoint(): Promise<string> {
@@ -53,10 +68,10 @@ export class DBStateManager implements IDBStateManager {
       const duration = Date.now() - startTime;
       this.recordPerformanceMetrics('createSavepoint', duration, 'savepoint');
       
-      console.log(`Created savepoint: ${savepointId} (${duration}ms)`);
+      this.logger.debug(`Created savepoint: ${savepointId} (${duration}ms)`);
       return savepointId;
     } catch (error) {
-      console.error(`Failed to create savepoint ${savepointId}:`, error);
+      this.logger.error(`Failed to create savepoint ${savepointId}:`, error);
       throw new Error(`Savepoint creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -75,9 +90,9 @@ export class DBStateManager implements IDBStateManager {
       // Remove the savepoint after successful rollback
       this.savepoints.delete(savepointId);
       
-      console.log(`Rolled back to savepoint: ${savepointId}`);
+      this.logger.debug(`Rolled back to savepoint: ${savepointId}`);
     } catch (error) {
-      console.error(`Failed to rollback to savepoint ${savepointId}:`, error);
+      this.logger.error(`Failed to rollback to savepoint ${savepointId}:`, error);
       throw new Error(`Savepoint rollback failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -100,9 +115,9 @@ export class DBStateManager implements IDBStateManager {
       await this.copyTableStructures('public', schemaName);
       
       this.schemas.add(schemaName);
-      console.log(`Created schema: ${schemaName}`);
+      this.logger.debug(`Created schema: ${schemaName}`);
     } catch (error) {
-      console.error(`Failed to create schema ${schemaName}:`, error);
+      this.logger.error(`Failed to create schema ${schemaName}:`, error);
       throw new Error(`Schema creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -116,12 +131,12 @@ export class DBStateManager implements IDBStateManager {
     await this.executeQuery(sql);
     
     this.schemas.delete(schemaName);
-    console.log(`Dropped schema: ${schemaName}`);
+    this.logger.debug(`Dropped schema: ${schemaName}`);
   }
 
   async copySchema(fromSchema: string, toSchema: string): Promise<void> {
     try {
-      console.log(`Copying schema from ${fromSchema} to ${toSchema}`);
+      this.logger.debug(`Copying schema from ${fromSchema} to ${toSchema}`);
       
       // First create the target schema
       await this.createSchema(toSchema);
@@ -132,9 +147,9 @@ export class DBStateManager implements IDBStateManager {
       // Copy data if needed (optional)
       // await this.copyTableData(fromSchema, toSchema);
       
-      console.log(`Schema copied from ${fromSchema} to ${toSchema}`);
+      this.logger.debug(`Schema copied from ${fromSchema} to ${toSchema}`);
     } catch (error) {
-      console.error(`Failed to copy schema from ${fromSchema} to ${toSchema}:`, error);
+      this.logger.error(`Failed to copy schema from ${fromSchema} to ${toSchema}:`, error);
       throw new Error(`Schema copy failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -158,10 +173,10 @@ export class DBStateManager implements IDBStateManager {
           CREATE TABLE ${toSchema}.${tableName} (LIKE ${fromSchema}.${tableName} INCLUDING ALL)
         `;
         await this.executeQuery(createTableSql);
-        console.log(`Copied table structure: ${tableName}`);
+        this.logger.debug(`Copied table structure: ${tableName}`);
       }
     } catch (error) {
-      console.error(`Failed to copy table structures:`, error);
+      this.logger.error(`Failed to copy table structures:`, error);
       throw error;
     }
   }
@@ -172,21 +187,17 @@ export class DBStateManager implements IDBStateManager {
     }
     
     try {
-      const serviceType = this.serviceConfig?.type;
+      const serviceType = this.serviceConfig?.category;
       
-      if (serviceType === 'mongo') {
-        // For MongoDB, create a new database
-        await this.createMongoDatabase(dbName);
-      } else {
-        // For SQL databases
-        const sql = `CREATE DATABASE ${dbName}`;
-        await this.executeQuery(sql);
-      }
+      // For now, assume SQL databases (PostgreSQL, MySQL)
+      // In real implementation, you'd check the actual database type from config
+      const sql = `CREATE DATABASE ${dbName}`;
+      await this.executeQuery(sql);
       
       this.databases.add(dbName);
-      console.log(`Created database: ${dbName}`);
+      this.logger.debug(`Created database: ${dbName}`);
     } catch (error) {
-      console.error(`Failed to create database ${dbName}:`, error);
+      this.logger.error(`Failed to create database ${dbName}:`, error);
       throw new Error(`Database creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -194,7 +205,7 @@ export class DBStateManager implements IDBStateManager {
   private async createMongoDatabase(dbName: string): Promise<void> {
     // For MongoDB, we need to connect and create the database
     // This would use MongoDB driver in real implementation
-    console.log(`Creating MongoDB database: ${dbName}`);
+    this.logger.debug(`Creating MongoDB database: ${dbName}`);
     
     // Mock implementation - in real scenario would use MongoDB driver
     const createDbCommand = `
@@ -208,7 +219,7 @@ export class DBStateManager implements IDBStateManager {
 
   private async executeMongoCommand(command: string): Promise<void> {
     // Mock implementation - would use MongoDB driver
-    console.log(`Executing MongoDB command: ${command}`);
+    this.logger.debug(`Executing MongoDB command: ${command}`);
   }
 
   async beginTransaction(): Promise<void> {
@@ -222,9 +233,9 @@ export class DBStateManager implements IDBStateManager {
       await this.executeQuery(sql);
       
       this.currentTransaction = transactionId;
-      console.log(`Started transaction: ${transactionId}`);
+      this.logger.debug(`Started transaction: ${transactionId}`);
     } catch (error) {
-      console.error('Failed to begin transaction:', error);
+      this.logger.error('Failed to begin transaction:', error);
       throw new Error(`Transaction begin failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -238,10 +249,10 @@ export class DBStateManager implements IDBStateManager {
       const sql = 'COMMIT';
       await this.executeQuery(sql);
       
-      console.log(`Committed transaction: ${this.currentTransaction}`);
+      this.logger.debug(`Committed transaction: ${this.currentTransaction}`);
       this.currentTransaction = null;
     } catch (error) {
-      console.error('Failed to commit transaction:', error);
+      this.logger.error('Failed to commit transaction:', error);
       throw new Error(`Transaction commit failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -255,10 +266,10 @@ export class DBStateManager implements IDBStateManager {
       const sql = 'ROLLBACK';
       await this.executeQuery(sql);
       
-      console.log(`Rolled back transaction: ${this.currentTransaction}`);
+      this.logger.debug(`Rolled back transaction: ${this.currentTransaction}`);
       this.currentTransaction = null;
     } catch (error) {
-      console.error('Failed to rollback transaction:', error);
+      this.logger.error('Failed to rollback transaction:', error);
       throw new Error(`Transaction rollback failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -274,11 +285,11 @@ export class DBStateManager implements IDBStateManager {
     await this.executeQuery(sql);
     
     this.databases.delete(dbName);
-    console.log(`Dropped database: ${dbName}`);
+    this.logger.debug(`Dropped database: ${dbName}`);
   }
 
   async cleanup(): Promise<void> {
-    console.log(`Cleaning up DB state for worker ${this.workerId}`);
+    this.logger.info(`Cleaning up DB state for worker ${this.workerId}`);
     
     // Clean up schemas
     for (const schema of Array.from(this.schemas)) {
@@ -296,7 +307,7 @@ export class DBStateManager implements IDBStateManager {
     // Clean up snapshots
     this.snapshots.clear();
     
-    console.log(`DB state cleanup completed for worker ${this.workerId}`);
+    this.logger.info(`DB state cleanup completed for worker ${this.workerId}`);
   }
 
   async createSnapshot(name: string): Promise<void> {
@@ -310,7 +321,7 @@ export class DBStateManager implements IDBStateManager {
     };
     
     this.snapshots.set(name, snapshot);
-    console.log(`Created snapshot: ${name}`);
+    this.logger.debug(`Created snapshot: ${name}`);
   }
 
   async restoreSnapshot(name: string): Promise<void> {
@@ -320,13 +331,13 @@ export class DBStateManager implements IDBStateManager {
     }
     
     // This would restore the database to the snapshot state
-    console.log(`Restoring snapshot: ${name}`);
+    this.logger.debug(`Restoring snapshot: ${name}`);
   }
 
   private async executeQuery(sql: string): Promise<void> {
     // This would execute the SQL query against the appropriate database
     // Implementation would depend on the database driver
-    console.log(`Executing SQL: ${sql}`);
+    this.logger.debug(`Executing SQL: ${sql}`);
   }
 
   private recordPerformanceMetrics(operation: string, duration: number, strategy: string): void {
@@ -379,43 +390,11 @@ export class DBStateManager implements IDBStateManager {
     // Check if we have command configuration
     if (this.serviceConfig.seed.command) {
       await this.runCommandSeeding();
-    } else if (this.serviceConfig.seed.typeorm) {
-      await this.runTypeORMSeeding();
-    }
-  }
-
-  private async runTypeORMSeeding(): Promise<void> {
-    console.log('Running TypeORM seeding...');
-    
-    try {
-      // Create a mock connection for seeding
-      // In real implementation, this would connect to the actual database
-      const mockConnection = {
-        getRepository: (entityClass: any) => ({
-          save: async (entity: any) => {
-            console.log(`Saving ${entityClass.name}:`, entity);
-            return entity;
-          },
-          create: (data: any) => data,
-          clear: async () => {
-            console.log(`Clearing ${entityClass.name}`);
-          }
-        }),
-        runMigrations: async () => {
-          console.log('Running migrations...');
-        }
-      };
-
-      await TypeORMAdapter.runSeeding(mockConnection, this.serviceConfig!.seed!);
-      console.log('TypeORM seeding completed successfully');
-    } catch (error) {
-      console.error('TypeORM seeding failed:', error);
-      throw error;
     }
   }
 
   private async runCommandSeeding(): Promise<void> {
-    console.log(`Running seed command: ${this.serviceConfig!.seed!.command}`);
+    this.logger.info(`Running seed command: ${this.serviceConfig!.seed!.command}`);
     
     // This would execute the seed command
     // Could be a shell command, SQL file, or application command
@@ -426,7 +405,7 @@ export class DBStateManager implements IDBStateManager {
     try {
       const { stdout, stderr } = await execAsync(this.serviceConfig!.seed!.command!, {
         timeout: this.serviceConfig!.seed!.timeout || 30000,
-        cwd: this.serviceConfig!.workingDirectory || process.cwd(),
+        cwd: this.serviceConfig!.local?.cwd || process.cwd(),
         env: {
           ...process.env,
           ...this.connectionStrings, // Add connection strings as environment variables
@@ -436,12 +415,12 @@ export class DBStateManager implements IDBStateManager {
       });
       
       if (stderr) {
-        console.warn('Seed command stderr:', stderr);
+        this.logger.warn('Seed command stderr:', stderr);
       }
       
-      console.log('Seed command completed successfully');
+      this.logger.info('Seed command completed successfully');
     } catch (error) {
-      console.error('Seed command failed:', error);
+      this.logger.error('Seed command failed:', error);
       throw error;
     }
   }

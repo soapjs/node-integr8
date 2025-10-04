@@ -17,7 +17,7 @@ export interface TestTemplateOptions {
   includeSetup: boolean;
   includeTeardown: boolean;
   customImports?: string[];
-  templateType: 'controller' | 'endpoint' | 'sample';
+  templateType: 'endpoint' | 'sample';
   generateScenarios?: boolean;
   defaultScenarios?: TestScenario[];
   routesConfig?: RoutesConfig;
@@ -26,9 +26,9 @@ export interface TestTemplateOptions {
 
 export class TestTemplateGenerator {
   private options: TestTemplateOptions;
-  private controllerTemplate!: HandlebarsTemplateDelegate;
   private endpointTemplate!: HandlebarsTemplateDelegate;
   private sampleTemplate!: HandlebarsTemplateDelegate;
+  public setupTeardownTemplate!: HandlebarsTemplateDelegate;
 
   constructor(options: TestTemplateOptions) {
     this.options = options;
@@ -68,11 +68,14 @@ export class TestTemplateGenerator {
   private loadTemplates(): void {
     const templatesDir = join(__dirname, '../templates');
     
-    // Load controller template
-    const controllerTemplatePath = join(templatesDir, 'controller.test.hbs');
-    const controllerTemplateSource = readFileSync(controllerTemplatePath, 'utf8');
-    this.controllerTemplate = Handlebars.compile(controllerTemplateSource);
-
+    // Load setup-teardown template
+    const setupTeardownTemplatePath = join(templatesDir, 'setup-teardown.hbs');
+    const setupTeardownTemplateSource = readFileSync(setupTeardownTemplatePath, 'utf8');
+    this.setupTeardownTemplate = Handlebars.compile(setupTeardownTemplateSource);
+    
+    // Register setup-teardown partial
+    Handlebars.registerPartial('setup-teardown', this.setupTeardownTemplate);
+    
     // Load endpoint template
     const endpointTemplatePath = join(templatesDir, 'endpoint.test.hbs');
     const endpointTemplateSource = readFileSync(endpointTemplatePath, 'utf8');
@@ -91,9 +94,7 @@ export class TestTemplateGenerator {
     
     const routesToUse = routes || await this.discoverRoutes();
     
-    if (this.options.templateType === 'controller') {
-      return this.generateControllerTemplates(routesToUse);
-    } else if (this.options.templateType === 'endpoint') {
+    if (this.options.templateType === 'endpoint') {
       return this.generateEndpointTemplates(routesToUse);
     } else {
       throw new Error(`Unknown template type: ${this.options.templateType}`);
@@ -103,11 +104,6 @@ export class TestTemplateGenerator {
   // Dedicated methods for each template type
   generateSampleTest(): TestTemplate {
     return this.generateSampleTemplate();
-  }
-
-  async generateControllerTests(routes?: RouteInfo[]): Promise<TestTemplate[]> {
-    const routesToUse = routes || await this.discoverRoutes();
-    return this.generateControllerTemplates(routesToUse);
   }
 
   async generateEndpointTests(routes?: RouteInfo[]): Promise<TestTemplate[]> {
@@ -136,12 +132,6 @@ export class TestTemplateGenerator {
     });
   }
 
-  static createControllerGenerator(options: Omit<TestTemplateOptions, 'templateType'>): TestTemplateGenerator {
-    return new TestTemplateGenerator({
-      ...options,
-      templateType: 'controller'
-    });
-  }
 
   static createEndpointGenerator(options: Omit<TestTemplateOptions, 'templateType'>): TestTemplateGenerator {
     return new TestTemplateGenerator({
@@ -150,59 +140,11 @@ export class TestTemplateGenerator {
     });
   }
 
-  private generateControllerTemplates(routes: RouteInfo[]): TestTemplate[] {
-    // Group routes by controller
-    const routesByController = this.groupRoutesByController(routes);
-    
-    return Object.entries(routesByController).map(([controller, controllerRoutes]) => {
-      return this.generateControllerTemplate(controller, controllerRoutes);
-    });
-  }
 
   private generateEndpointTemplates(routes: RouteInfo[]): TestTemplate[] {
     return routes.map(route => this.generateEndpointTemplate(route));
   }
 
-  private groupRoutesByController(routes: RouteInfo[]): Record<string, RouteInfo[]> {
-    return routes.reduce((groups, route) => {
-      const controller = route.controller || route.group || 'api';
-      if (!groups[controller]) {
-        groups[controller] = [];
-      }
-      groups[controller].push(route);
-      return groups;
-    }, {} as Record<string, RouteInfo[]>);
-  }
-
-  private generateControllerTemplate(controller: string, routes: RouteInfo[]): TestTemplate {
-    const fileName = this.generateControllerFileName(controller);
-    const testFilePath = join(this.options.outputDir, fileName);
-    
-    // Enhance routes with test scenarios
-    const enhancedRoutes = routes.map(route => ({
-      ...route,
-      testScenarios: this.generateTestScenarios(route)
-    }));
-    
-    const templateData = {
-      controllerName: this.formatControllerName(controller),
-      endpoints: enhancedRoutes,
-      imports: this.generateImports(),
-      setup: this.options.includeSetup,
-      teardown: this.options.includeTeardown,
-      configPath: this.options.configPath || '../integr8.config.js',
-      testFilePath: testFilePath
-    };
-
-    const content = this.controllerTemplate(templateData);
-
-    return {
-      fileName,
-      content,
-      controller,
-      routes
-    };
-  }
 
   private generateEndpointTemplate(route: RouteInfo): TestTemplate {
     const fileName = this.generateEndpointFileName(route);
@@ -213,7 +155,7 @@ export class TestTemplateGenerator {
       imports: this.generateImports(),
       setup: this.options.includeSetup,
       teardown: this.options.includeTeardown,
-      configPath: this.options.configPath || '../integr8.config.js',
+      configPath: this.options.configPath || '../../integr8.api.config.js',
       testFilePath: testFilePath
     };
 
@@ -249,14 +191,6 @@ export class TestTemplateGenerator {
     };
   }
 
-  private generateControllerFileName(controller: string): string {
-    const cleanName = controller
-      .replace(/[^a-zA-Z0-9]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-    
-    return `${cleanName}.integration.test.ts`;
-  }
 
   private generateEndpointFileName(route: RouteInfo): string {
     const method = route.method.toLowerCase();
@@ -272,12 +206,6 @@ export class TestTemplateGenerator {
     return `${method}-${path}.integration.test.ts`;
   }
 
-  private formatControllerName(controller: string): string {
-    return controller
-      .split(/[-_]/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
 
   private generateTestScenarios(route: RouteInfo): TestScenario[] {
     if (!this.options.generateScenarios) {

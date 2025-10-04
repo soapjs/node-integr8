@@ -1,0 +1,76 @@
+name: Integr8 CI Example
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  setup-environment:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Start Integr8 environment
+      run: |
+        # Start environment in background
+        npm run integr8:up -- --detach &
+        # Wait for environment to be ready
+        sleep 30
+        # Create CI flag file
+        echo '{"ready": true, "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'", "ci": true}' > .integr8-environment-ready
+    
+    - name: Upload environment flag
+      uses: actions/upload-artifact@v4
+      with:
+        name: integr8-environment-flag
+        path: .integr8-environment-ready
+        retention-days: 1
+    
+    - name: Wait for tests
+      run: sleep 300  # Keep environment running for 5 minutes
+
+  run-tests:
+    needs: setup-environment
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Download environment flag
+      uses: actions/download-artifact@v4
+      with:
+        name: integr8-environment-flag
+        path: .
+    
+    - name: Run Integr8 tests
+      run: npm run integr8:run
+      env:
+        INTEGR8_CI_MODE: true
+        INTEGR8_SHARED_ENVIRONMENT: true
+
+  cleanup:
+    needs: [setup-environment, run-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Cleanup artifacts
+      run: echo "Environment cleanup completed"

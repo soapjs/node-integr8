@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { execSync } from 'child_process';
 import { TestTemplateGenerator } from '../../core/test-template-generator';
-import { RouteInfo } from '../../types';
+import { RouteInfo, Integr8Config } from '../../types';
+import { createConfig } from '../../utils/config';
 
 export interface ScanOptions {
   command?: string;
@@ -12,9 +13,12 @@ export interface ScanOptions {
   output?: string;
   config?: string;
   format?: 'json' | 'yaml';
+  timeout?: number;
 }
 
 export interface ExtendedRouteInfo extends RouteInfo {
+  resource?: string; // Resource name for test file naming (e.g., "users")
+  endpoint?: string; // Explicit endpoint name for test file naming (fallback)
   request?: {
     headers?: Record<string, any>;
     query?: Record<string, any>;
@@ -35,10 +39,21 @@ export interface TestScenario {
 }
 
 export class ScanCommand {
+  private config: Integr8Config;
+
+  constructor(config?: Integr8Config) {
+    this.config = config || createConfig({});
+  }
+
   async execute(options: ScanOptions): Promise<void> {
     console.log('🔍 Starting endpoint scan...');
     
     try {
+      // Load config if not provided
+      if (!this.config) {
+        this.config = await this.loadConfig(options.config);
+      }
+
       // 1. Discovery
       const routes = await this.discoverRoutes(options);
       console.log(`📡 Found ${routes.length} endpoints`);
@@ -57,24 +72,46 @@ export class ScanCommand {
     }
   }
 
+  private async loadConfig(configPath?: string): Promise<Integr8Config> {
+    const configFile = configPath || 'integr8.config.js';
+    
+    if (existsSync(configFile)) {
+      try {
+        const config = require(resolve(configFile));
+        return config.default || config;
+      } catch (error) {
+        console.log(`⚠️  Could not load config from ${configFile}, using defaults`);
+      }
+    }
+    
+    return createConfig({});
+  }
+
   private async discoverRoutes(options: ScanOptions): Promise<ExtendedRouteInfo[]> {
     if (options.command) {
-      return await this.discoverFromCommand(options.command);
+      return await this.discoverFromCommand(options.command, options.timeout);
     } else if (options.json) {
       return await this.discoverFromFile(options.json);
+    } else if (this.config.endpointDiscovery?.command) {
+      // Use config command if no explicit command provided
+      return await this.discoverFromCommand(
+        this.config.endpointDiscovery.command, 
+        options.timeout || this.config.endpointDiscovery.timeout
+      );
     } else {
-      throw new Error('Either --command or --json must be provided');
+      throw new Error('Either --command, --json must be provided, or endpointDiscovery.command must be configured');
     }
   }
 
-  private async discoverFromCommand(command: string): Promise<ExtendedRouteInfo[]> {
+  private async discoverFromCommand(command: string, timeout?: number): Promise<ExtendedRouteInfo[]> {
     console.log(`🚀 Running command: ${command}`);
     
     try {
       const output = execSync(command, { 
         encoding: 'utf8',
         cwd: process.cwd(),
-        stdio: 'pipe'
+        stdio: 'pipe',
+        timeout: timeout || 10000
       });
       
       const routes = JSON.parse(output);
@@ -106,8 +143,9 @@ export class ScanCommand {
     return routes.map(route => ({
       method: route.method?.toUpperCase() || 'GET',
       path: this.normalizePath(route.path || '/'),
-      controller: route.controller || 'Unknown',
-      group: route.group || route.controller || 'api',
+      resource: route.resource, // Use resource name if provided
+      endpoint: route.endpoint, // Use explicit endpoint name if provided
+      group: route.group || route.resource || 'api',
       middleware: route.middleware || [],
       params: route.params || [],
       request: route.request || {},
@@ -183,7 +221,7 @@ export class ScanCommand {
 
   private async generateTests(routes: ExtendedRouteInfo[], options: ScanOptions): Promise<void> {
     if (routes.length === 0) {
-      console.log('ℹ️  No new endpoints to generate tests for');
+      console.log('No new endpoints to generate tests for');
       return;
     }
     
@@ -193,7 +231,7 @@ export class ScanCommand {
     // Ensure output directory exists
     if (!existsSync(outputDir)) {
       mkdirSync(outputDir, { recursive: true });
-      console.log(`📁 Created output directory: ${outputDir}`);
+      console.log(`Created output directory: ${outputDir}`);
     }
     
     // Generate tests for each route
@@ -208,14 +246,14 @@ export class ScanCommand {
       return options.output;
     }
     
-    // Try to load config and get testDirectory
+    // Try to load config and get testDir
     try {
       if (existsSync(configPath)) {
         const config = require(resolve(configPath));
         const integr8Config = config.default || config;
         
-        if (integr8Config.testDirectory) {
-          return integr8Config.testDirectory;
+        if (integr8Config.testDir) {
+          return integr8Config.testDir;
         }
       }
     } catch (error) {
@@ -223,14 +261,14 @@ export class ScanCommand {
     }
     
     // Fallback to default
-    return './tests';
+    return './integr8/tests';
   }
 
   private async generateTestForRoute(route: ExtendedRouteInfo, outputDir: string, configPath: string): Promise<void> {
     const { TestTemplateGenerator } = require('../../core/test-template-generator');
     
-    // Extract endpoint name for filename
-    const endpointName = this.extractEndpointName(route.path);
+    // Priority: resource -> endpoint -> extract from path
+    const endpointName = route.resource || route.endpoint || this.extractEndpointName(route.path);
     const fileName = `${endpointName}.${route.method.toLowerCase()}.test.ts`;
     const filePath = join(outputDir, fileName);
     

@@ -1,8 +1,7 @@
-import { SeedConfig, SeedScenario, ServiceConfig } from '../types';
-import { TypeORMAdapter } from '../adapters/typeorm-adapter';
+import { DatabaseConfig, SeedConfig, ServiceConfig } from '../types';
 
 export class SeedManager {
-  private serviceConfig: ServiceConfig | undefined;
+  private databaseConfig: DatabaseConfig | undefined;
   private workerId: string;
   private hasSeededOnce: boolean = false;
   private currentSnapshot: string | null = null;
@@ -10,8 +9,8 @@ export class SeedManager {
   private seededTests: Set<string> = new Set();
   private connectionStrings: Record<string, string>;
 
-  constructor(serviceConfig: ServiceConfig | undefined, workerId: string, connectionStrings: Record<string, string> = {}) {
-    this.serviceConfig = serviceConfig;
+  constructor(serviceConfig: DatabaseConfig | undefined, workerId: string, connectionStrings: Record<string, string> = {}) {
+    this.databaseConfig = serviceConfig;
     this.workerId = workerId;
     this.connectionStrings = connectionStrings;
   }
@@ -19,15 +18,15 @@ export class SeedManager {
   async initialize(): Promise<void> {
     console.log(`Initializing Seed Manager for worker ${this.workerId}`);
     
-    if (this.serviceConfig?.seed) {
+    if (this.databaseConfig?.seed) {
       await this.executeSeedingStrategy('initialize');
     }
   }
 
   async seedForFile(fileName: string): Promise<void> {
-    if (!this.serviceConfig?.seed) return;
+    if (!this.databaseConfig?.seed) return;
 
-    const strategy = this.serviceConfig.seed.strategy || 'per-file';
+    const strategy = this.databaseConfig.seed.strategy || 'per-file';
     
     switch (strategy) {
       case 'once':
@@ -47,17 +46,13 @@ export class SeedManager {
       case 'per-test':
         // Per-test seeding is handled in seedForTest
         break;
-        
-      case 'custom':
-        await this.executeCustomSeeding('file', fileName);
-        break;
     }
   }
 
   async seedForTest(testName: string, filePath: string): Promise<void> {
-    if (!this.serviceConfig?.seed) return;
+    if (!this.databaseConfig?.seed) return;
 
-    const strategy = this.serviceConfig.seed.strategy || 'per-file';
+    const strategy = this.databaseConfig.seed.strategy || 'per-file';
     
     switch (strategy) {
       case 'once':
@@ -72,19 +67,15 @@ export class SeedManager {
           this.seededTests.add(testKey);
         }
         break;
-        
-      case 'custom':
-        await this.executeCustomSeeding('test', testName, filePath);
-        break;
     }
   }
 
   async restoreAfterFile(fileName: string): Promise<void> {
-    if (!this.serviceConfig?.seed) return;
+    if (!this.databaseConfig?.seed) return;
 
-    const restoreStrategy = this.serviceConfig.seed.restoreStrategy || 'rollback';
+    const restore = this.databaseConfig.seed.restore || 'rollback';
     
-    switch (restoreStrategy) {
+    switch (restore) {
       case 'none':
         // No restoration needed
         break;
@@ -104,14 +95,14 @@ export class SeedManager {
   }
 
   async restoreAfterTest(testName: string, filePath: string): Promise<void> {
-    if (!this.serviceConfig?.seed) return;
+    if (!this.databaseConfig?.seed) return;
 
-    const strategy = this.serviceConfig.seed.strategy || 'per-file';
-    const restoreStrategy = this.serviceConfig.seed.restoreStrategy || 'rollback';
+    const strategy = this.databaseConfig.seed.strategy || 'per-file';
+    const restore = this.databaseConfig.seed.restore || 'rollback';
     
     // Only restore after test if using per-test strategy
     if (strategy === 'per-test') {
-      switch (restoreStrategy) {
+      switch (restore) {
         case 'none':
           break;
         case 'rollback':
@@ -128,17 +119,12 @@ export class SeedManager {
   }
 
   private async executeSeedingStrategy(context: 'initialize' | 'file' | 'test', ...args: string[]): Promise<void> {
-    const seedConfig = this.serviceConfig!.seed!;
+    const seedConfig = this.databaseConfig!.seed!;
     
     try {
-      if (seedConfig.typeorm) {
-        await this.executeTypeORMSeeding(seedConfig);
-      } else if (seedConfig.command) {
+      if (seedConfig.command) {
         await this.executeCommandSeeding(seedConfig);
-      } else if (seedConfig.entities) {
-        await this.executeEntitySeeding(seedConfig);
       }
-      
       // Create snapshot for restoration
       if (context !== 'initialize') {
         await this.createSnapshot();
@@ -149,60 +135,6 @@ export class SeedManager {
       console.error(`❌ Seeding failed for ${context}:`, error);
       throw error;
     }
-  }
-
-  private async executeCustomSeeding(context: 'file' | 'test', ...args: string[]): Promise<void> {
-    const customScenarios = this.serviceConfig!.seed!.customScenarios || [];
-    
-    for (const scenario of customScenarios) {
-      // Check if scenario should be executed
-      if (scenario.condition) {
-        const shouldExecute = scenario.condition({
-          context,
-          args,
-          workerId: this.workerId,
-          fileName: args[0],
-          testName: args[1]
-        });
-        
-        if (!shouldExecute) continue;
-      }
-      
-      console.log(`🎯 Executing custom scenario: ${scenario.name}`);
-      
-      if (scenario.seedCommand) {
-        await this.executeCommand(scenario.seedCommand);
-      } else if (scenario.seedData) {
-        await this.executeDataSeeding(scenario.seedData);
-      }
-      
-      if (scenario.restoreAfter) {
-        await this.createSnapshot();
-      }
-    }
-  }
-
-  private async executeTypeORMSeeding(seedConfig: SeedConfig): Promise<void> {
-    if (!seedConfig.typeorm) return;
-    
-    // Create mock connection for seeding
-    const mockConnection = {
-      getRepository: (entityClass: any) => ({
-        save: async (entity: any) => {
-          console.log(`Saving ${entityClass.name}:`, entity);
-          return entity;
-        },
-        create: (data: any) => data,
-        clear: async () => {
-          console.log(`Clearing ${entityClass.name}`);
-        }
-      }),
-      runMigrations: async () => {
-        console.log('Running migrations...');
-      }
-    };
-
-    await TypeORMAdapter.runSeeding(mockConnection, seedConfig);
   }
 
   private async executeCommandSeeding(seedConfig: SeedConfig): Promise<void> {
@@ -217,7 +149,7 @@ export class SeedManager {
     try {
       const { stdout, stderr } = await execAsync(seedConfig.command, {
         timeout: seedConfig.timeout || 30000,
-        cwd: this.serviceConfig!.workingDirectory || process.cwd(),
+        cwd: this.databaseConfig!.local?.cwd || process.cwd(),
         env: {
           ...process.env,
           ...this.connectionStrings, // Add connection strings as environment variables
@@ -237,69 +169,22 @@ export class SeedManager {
     }
   }
 
-  private async executeEntitySeeding(seedConfig: SeedConfig): Promise<void> {
-    if (!seedConfig.entities) return;
-    
-    console.log('Seeding entities...');
-    
-    // Mock implementation - would use actual entity seeding
-    for (const entity of seedConfig.entities) {
-      console.log(`Seeding entity: ${entity.name || entity.constructor.name}`);
-    }
-  }
-
-  private async executeDataSeeding(data: any[]): Promise<void> {
-    console.log(`Seeding ${data.length} data items...`);
-    
-    // Mock implementation - would use actual data seeding
-    for (const item of data) {
-      console.log('Seeding data item:', item);
-    }
-  }
-
-  private async executeCommand(command: string): Promise<void> {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-    
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        timeout: 30000,
-        cwd: this.serviceConfig!.workingDirectory || process.cwd(),
-        env: {
-          ...process.env,
-          WORKER_ID: this.workerId,
-          NODE_ENV: 'test'
-        }
-      });
-      
-      if (stderr) {
-        console.warn('Command stderr:', stderr);
-      }
-      
-      console.log('Command completed successfully');
-    } catch (error) {
-      console.error('Command failed:', error);
-      throw error;
-    }
-  }
-
   private async createSnapshot(): Promise<void> {
     const snapshotId = `snapshot_${this.workerId}_${Date.now()}`;
     this.currentSnapshot = snapshotId;
-    console.log(`📸 Created snapshot: ${snapshotId}`);
+    console.log(`Created snapshot: ${snapshotId}`);
   }
 
   private async rollbackToSnapshot(): Promise<void> {
     if (this.currentSnapshot) {
-      console.log(`🔄 Rolling back to snapshot: ${this.currentSnapshot}`);
+      console.log(`Rolling back to snapshot: ${this.currentSnapshot}`);
       // Implementation would depend on database strategy
       this.currentSnapshot = null;
     }
   }
 
   private async resetDatabase(): Promise<void> {
-    console.log('🔄 Resetting database...');
+    console.log('Resetting database...');
     // Implementation would depend on database strategy
   }
 

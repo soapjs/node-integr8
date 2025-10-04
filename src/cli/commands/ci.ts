@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { upCommand } from './up';
-import { runCommand } from './run';
+import { testCommand } from './test';
 import { downCommand } from './down';
 
 export async function ciCommand(options: {
@@ -11,21 +11,21 @@ export async function ciCommand(options: {
   verbose: boolean;
   noCleanup: boolean;
 }) {
-  console.log(chalk.blue('🤖 Running integration tests in CI mode...'));
+  console.log(chalk.blue('Running integration tests in CI mode...'));
   const startTime = Date.now();
 
   try {
     // 1. Start environment
     if (options.verbose) {
-      console.log(chalk.blue('🚀 Starting test environment...'));
+      console.log(chalk.blue('Starting test environment...'));
     }
     await upCommand({ config: options.config, testType: options.testType, detach: false });
 
     // 2. Run tests
     if (options.verbose) {
-      console.log(chalk.blue('🧪 Running integration tests...'));
+      console.log(chalk.blue('Running integration tests...'));
     }
-    await runCommand({
+    await testCommand({
       config: options.config,
       testType: options.testType,
       pattern: options.pattern,

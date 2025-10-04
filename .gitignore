@@ -38,6 +38,9 @@ coverage/
 test-artifacts/
 temp/
 
+# Integr8 environment flags
+.integr8-environment-ready
+
 # Docker
 .dockerignore
 

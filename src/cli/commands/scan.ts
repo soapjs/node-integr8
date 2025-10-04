@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { execSync } from 'child_process';
 import { TestTemplateGenerator } from '../../core/test-template-generator';
+import { DecoratorScanner } from '../../core/decorator-scanner';
 import { RouteInfo, Integr8Config } from '../../types';
 import { createConfig } from '../../utils/config';
 
@@ -14,6 +15,7 @@ export interface ScanOptions {
   config?: string;
   format?: 'json' | 'yaml';
   timeout?: number;
+  decorators?: boolean;
 }
 
 export interface ExtendedRouteInfo extends RouteInfo {
@@ -55,8 +57,20 @@ export class ScanCommand {
       }
 
       // 1. Discovery
-      const routes = await this.discoverRoutes(options);
-      console.log(`📡 Found ${routes.length} endpoints`);
+      let routes: ExtendedRouteInfo[] = [];
+      
+      if (options.decorators) {
+        console.log('🔍 Scanning decorators...');
+        const decoratorRoutes = await this.scanDecorators(options);
+        routes.push(...decoratorRoutes);
+        console.log(`📡 Found ${decoratorRoutes.length} endpoints from decorators`);
+      }
+      
+      if (!options.decorators || routes.length === 0) {
+        const discoveredRoutes = await this.discoverRoutes(options);
+        routes.push(...discoveredRoutes);
+        console.log(`📡 Found ${discoveredRoutes.length} endpoints from discovery`);
+      }
       
       // 2. Filter
       const filteredRoutes = await this.filterRoutes(routes, options);
@@ -396,5 +410,34 @@ export class ScanCommand {
       case 'DELETE': return 204;
       default: return 200;
     }
+  }
+
+  private async scanDecorators(options: ScanOptions): Promise<ExtendedRouteInfo[]> {
+    const decoratorConfig = this.config?.scanning?.decorators;
+    
+    if (!decoratorConfig) {
+      console.warn('⚠️ Decorator scanning not configured in integr8.config.js');
+      return [];
+    }
+
+    const scanner = new DecoratorScanner(decoratorConfig);
+    const decoratorRoutes = await scanner.scanDecorators();
+
+    return decoratorRoutes.map(route => ({
+      method: route.method,
+      path: route.path,
+      description: route.description,
+      resource: this.extractResourceName(route.path),
+      expectedStatus: route.decorators?.httpCode || this.getDefaultStatus(route.method),
+      sourceFile: route.sourceFile,
+      lineNumber: route.lineNumber,
+      decorators: route.decorators
+    }));
+  }
+
+  private extractResourceName(path: string): string {
+    const parts = path.split('/').filter(part => part.length > 0 && !part.startsWith(':'));
+    const meaningfulParts = parts.filter(part => part !== 'api' && part !== 'v1');
+    return meaningfulParts[0] || 'endpoint';
   }
 }

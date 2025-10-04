@@ -35,6 +35,39 @@ export type Integr8Config = {
   setupTimeout?: number;
   teardownTimeout?: number;
   endpointDiscovery?: EndpointDiscoveryConfig;
+  scanning?: ScanningConfig;
+}
+
+export type ScanningConfig = {
+  decorators?: DecoratorScanningConfig;
+}
+
+export type DecoratorScanningConfig = {
+  enabled?: boolean;
+  framework?: 'nestjs' | 'express' | 'custom';
+  decorators?: {
+    controllers?: string[];
+    routes?: string[];
+    statusCodes?: string[];
+    apiDocs?: string[];
+    routers?: string[];
+    custom?: Record<string, string[]>;
+  };
+  paths?: string[];
+  exclude?: string[];
+}
+
+export type ExtendedRouteInfo = RouteInfo & {
+  resource?: string;
+  endpoint?: string;
+  request?: {
+    headers?: Record<string, any>;
+    query?: Record<string, any>;
+    body?: any;
+  };
+  response?: Record<string, any>;
+  description?: string;
+  testScenarios?: TestScenario[];
 }
 
 export type EndpointDiscoveryConfig = {

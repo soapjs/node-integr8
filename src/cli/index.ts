@@ -121,6 +121,7 @@ program
   .option('--config <path>', 'Path to integr8 config file')
   .option('--format <format>', 'Output format: json, yaml', 'json')
   .option('--timeout <ms>', 'Timeout for command execution in milliseconds', '10000')
+  .option('--decorators', 'Scan decorators instead of using discovery command')
   .action(async (options) => {
     const { ScanCommand } = await import('./commands/scan');
     const scanCommand = new ScanCommand();

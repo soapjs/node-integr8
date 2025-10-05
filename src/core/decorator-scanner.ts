@@ -28,6 +28,9 @@ export class DecoratorScanner {
     for (const file of files) {
       try {
         const fileRoutes = await this.scanFile(file);
+        if (fileRoutes.length > 0) {
+          console.log(`✅ Found ${fileRoutes.length} routes in ${file}`);
+        }
         routes.push(...fileRoutes);
       } catch (error) {
         console.warn(`Failed to scan file ${file}:`, error);

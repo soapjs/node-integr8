@@ -51,10 +51,8 @@ export class ScanCommand {
     console.log('🔍 Starting endpoint scan...');
     
     try {
-      // Load config if not provided
-      if (!this.config) {
-        this.config = await this.loadConfig(options.config);
-      }
+      // Always load config from file (override default config)
+      this.config = await this.loadConfig(options.config);
 
       // 1. Discovery
       let routes: ExtendedRouteInfo[] = [];
@@ -110,7 +108,7 @@ export class ScanCommand {
       // Use config command if no explicit command provided
       return await this.discoverFromCommand(
         this.config.endpointDiscovery.command, 
-        options.timeout || this.config.endpointDiscovery.timeout
+        options.timeout || Number(this.config.endpointDiscovery.timeout)
       );
     } else {
       throw new Error('Either --command, --json must be provided, or endpointDiscovery.command must be configured');
@@ -125,7 +123,7 @@ export class ScanCommand {
         encoding: 'utf8',
         cwd: process.cwd(),
         stdio: 'pipe',
-        timeout: timeout || 10000
+        timeout: Number(timeout || 10000)
       });
       
       const routes = JSON.parse(output);

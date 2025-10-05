@@ -16,6 +16,7 @@ export interface ScanOptions {
   format?: 'json' | 'yaml';
   timeout?: number;
   decorators?: boolean;
+  generateTests?: boolean;
 }
 
 export interface ExtendedRouteInfo extends RouteInfo {
@@ -48,7 +49,7 @@ export class ScanCommand {
   }
 
   async execute(options: ScanOptions): Promise<void> {
-    console.log('🔍 Starting endpoint scan...');
+    console.log('Starting endpoint scan...');
     
     try {
       // Always load config from file (override default config)
@@ -58,25 +59,36 @@ export class ScanCommand {
       let routes: ExtendedRouteInfo[] = [];
       
       if (options.decorators) {
-        console.log('🔍 Scanning decorators...');
+        console.log('Scanning decorators...');
         const decoratorRoutes = await this.scanDecorators(options);
         routes.push(...decoratorRoutes);
-        console.log(`📡 Found ${decoratorRoutes.length} endpoints from decorators`);
+        console.log(`Found ${decoratorRoutes.length} endpoints from decorators`);
       }
       
       if (!options.decorators || routes.length === 0) {
         const discoveredRoutes = await this.discoverRoutes(options);
         routes.push(...discoveredRoutes);
-        console.log(`📡 Found ${discoveredRoutes.length} endpoints from discovery`);
+        console.log(`Found ${discoveredRoutes.length} endpoints from discovery`);
       }
       
       // 2. Filter
       const filteredRoutes = await this.filterRoutes(routes, options);
-      console.log(`📋 ${options.type === 'only-new' ? 'New' : 'All'} endpoints: ${filteredRoutes.length}`);
+      console.log(`${options.type === 'only-new' ? 'New' : 'All'} endpoints: ${filteredRoutes.length}`);
       
-      // 3. Generate
-      await this.generateTests(filteredRoutes, options);
-      console.log('✅ Test generation completed!');
+
+      const outputPath = options.output || this.config.scanning?.output || 'endpoints.json';
+      // 3. Output results
+      if (outputPath) {
+        await this.saveResults(filteredRoutes, outputPath, options);
+      }
+      
+      // 4. Generate tests (only if requested)
+      if (options.generateTests) {
+        await this.generateTests(filteredRoutes, options);
+        console.log('✅ Test generation completed!');
+      } else {
+        console.log('✅ Scan completed! Use --generate-tests to create test files.');
+      }
       
     } catch (error) {
       console.error('❌ Scan failed:', error instanceof Error ? error.message : String(error));
@@ -431,6 +443,26 @@ export class ScanCommand {
       lineNumber: route.lineNumber,
       decorators: route.decorators
     }));
+  }
+
+  private async saveResults(routes: ExtendedRouteInfo[], outputPath: string, options: ScanOptions): Promise<void> {
+    const format = options.format || 'json';
+    
+    let content: string;
+    
+    if (format === 'json') {
+      content = JSON.stringify(routes, null, 2);
+    } else if (format === 'yaml') {
+      // Simple YAML-like output (you might want to use a proper YAML library)
+      content = routes.map(route => 
+        `- method: ${route.method}\n  path: ${route.path}\n  resource: ${route.resource || 'unknown'}`
+      ).join('\n');
+    } else {
+      throw new Error(`Unsupported format: ${format}`);
+    }
+    
+    writeFileSync(outputPath, content, 'utf8');
+    console.log(`Results saved to: ${outputPath}`);
   }
 
   private extractResourceName(path: string): string {

@@ -39,7 +39,7 @@ export async function findExistingContainer(serviceName: string): Promise<string
     if (stdout.trim()) {
       const containerName = stdout.trim().split('\n')[0]; // Take first match
       console.log(
-        chalk.blue('🔍 Found existing integr8 container:'),
+        chalk.blue('Found existing integr8 container:'),
         chalk.cyan(containerName),
         'for service',
         chalk.magenta(serviceName)

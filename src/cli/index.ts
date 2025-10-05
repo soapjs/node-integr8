@@ -122,6 +122,7 @@ program
   .option('--format <format>', 'Output format: json, yaml', 'json')
   .option('--timeout <ms>', 'Timeout for command execution in milliseconds', '10000')
   .option('--decorators', 'Scan decorators instead of using discovery command')
+  .option('--generate-tests', 'Generate test files for discovered endpoints')
   .action(async (options) => {
     const { ScanCommand } = await import('./commands/scan');
     const scanCommand = new ScanCommand();

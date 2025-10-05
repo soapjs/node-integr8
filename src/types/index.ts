@@ -40,6 +40,7 @@ export type Integr8Config = {
 
 export type ScanningConfig = {
   decorators?: DecoratorScanningConfig;
+  output: string;
 }
 
 export type DecoratorScanningConfig = {

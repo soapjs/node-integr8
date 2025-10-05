@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, extname } from 'path';
 import { DecoratorScanningConfig, ExtendedRouteInfo } from '../types';
+import { ModuleMapper } from './module-mapper';
+import { RouteResolver } from './route-resolver';
+import { RouterParser } from './router-parser';
 
 export interface DecoratorRouteInfo extends ExtendedRouteInfo {
   sourceFile?: string;
@@ -8,13 +11,21 @@ export interface DecoratorRouteInfo extends ExtendedRouteInfo {
   decorators?: Record<string, any>;
   routerPath?: string;
   controllerPath?: string;
+  controllerName?: string;
+  moduleName?: string;
 }
 
 export class DecoratorScanner {
   private config: DecoratorScanningConfig;
+  private moduleMapper: ModuleMapper;
+  private routeResolver: RouteResolver;
+  private routerParser: RouterParser;
 
   constructor(config: DecoratorScanningConfig) {
     this.config = config;
+    this.moduleMapper = new ModuleMapper();
+    this.routeResolver = new RouteResolver(this.moduleMapper);
+    this.routerParser = new RouterParser();
   }
 
   async scanDecorators(): Promise<DecoratorRouteInfo[]> {
@@ -23,21 +34,82 @@ export class DecoratorScanner {
     }
 
     const files = this.getFilesToScan();
+    
+    // First pass: Parse router configurations
+    await this.parseRouterConfigurations(files);
+    
+    // Second pass: Parse controllers and routes
     const routes: DecoratorRouteInfo[] = [];
-
     for (const file of files) {
       try {
         const fileRoutes = await this.scanFile(file);
-        if (fileRoutes.length > 0) {
-          console.log(`✅ Found ${fileRoutes.length} routes in ${file}`);
-        }
         routes.push(...fileRoutes);
       } catch (error) {
         console.warn(`Failed to scan file ${file}:`, error);
       }
     }
 
-    return routes;
+    // Use new architecture to resolve full paths from RouterModule + Controller + Method
+    const resolvedRoutes = this.resolveRoutes(routes);
+    
+    return resolvedRoutes;
+  }
+
+  /**
+   * Extract controller class name from file content
+   */
+  private extractControllerName(content: string): string | null {
+    const classMatch = content.match(/export\s+class\s+(\w+Controller)/);
+    return classMatch ? classMatch[1] : null;
+  }
+
+  /**
+   * First pass: Parse router configurations from all files
+   */
+  private async parseRouterConfigurations(files: string[]): Promise<void> {
+    for (const file of files) {
+      try {
+        const content = readFileSync(file, 'utf8');
+        const routerCalls = this.routerParser.parseRouterCalls(content, file);
+        
+        for (const routerCall of routerCalls) {
+          this.moduleMapper.registerRouter(routerCall.config);
+        }
+      } catch (error) {
+        // Silently skip files that can't be read
+      }
+    }
+  }
+
+  /**
+   * Resolve routes using the new architecture
+   */
+  private resolveRoutes(routes: DecoratorRouteInfo[]): DecoratorRouteInfo[] {
+    const resolvedRoutes: DecoratorRouteInfo[] = [];
+    
+    for (const route of routes) {
+      try {
+        const resolved = this.routeResolver.resolveFromDecoratorRoute(route);
+        
+        // Create a new DecoratorRouteInfo with resolved path
+        const resolvedRoute: DecoratorRouteInfo = {
+          ...route,
+          path: resolved.path,
+          routerPath: resolved.routerPrefix,
+          controllerPath: resolved.controllerPath,
+          controllerName: resolved.controllerName,
+          moduleName: resolved.moduleName
+        };
+        
+        resolvedRoutes.push(resolvedRoute);
+      } catch (error) {
+        console.warn(`Failed to resolve route ${route.method} ${route.path}:`, error);
+        // Fallback to original route
+        resolvedRoutes.push(route);
+      }
+    }
+    
+    return resolvedRoutes;
   }
 
   private getFilesToScan(): string[] {
@@ -102,25 +174,37 @@ export class DecoratorScanner {
 
     let currentController = '';
     let currentControllerPath = '';
+    let currentControllerName = '';
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
       // Find controller
-      const controllerMatch = line.match(/@Controller\(['"`]([^'"`]+)['"`]\)/);
+      const controllerMatch = line.match(/@Controller\(['"`]([^'"`]*)['"`]\)/);
       if (controllerMatch) {
         currentController = controllerMatch[1];
         currentControllerPath = currentController;
+        
+        // Register controller in ModuleMapper
+        currentControllerName = this.extractControllerName(content) || '';
+        if (currentControllerName) {
+          this.moduleMapper.registerController({
+            name: currentControllerName,
+            path: currentController,
+            filePath: filePath
+          });
+        }
         continue;
       }
 
       // Find route decorators
       const routeDecorators = this.config.decorators?.routes || [];
       for (const decorator of routeDecorators) {
-        const routeMatch = line.match(new RegExp(`@${decorator.replace('@', '')}\\(['"\`]([^'"\`]+)['"\`]\\)`));
+        // Match both @Get('/path') and @Get() (empty parameters)
+        const routeMatch = line.match(new RegExp(`@${decorator.replace('@', '')}\\(['"\`]?([^'"\`]*?)['"\`]?\\)`));
         if (routeMatch) {
           const method = decorator.replace('@', '').toUpperCase();
-          const path = routeMatch[1];
+          const path = routeMatch[1] || ''; // Default to empty string if no path provided
           const fullPath = this.buildFullPath(currentControllerPath, path);
 
           // Look for additional decorators in the next few lines
@@ -152,10 +236,13 @@ export class DecoratorScanner {
 
           routes.push({
             method,
-            path: fullPath,
+            path: path, // Use the method path only, not fullPath
             description: description || `${method} ${fullPath}`,
             sourceFile: filePath,
             lineNumber: i + 1,
+            routerPath: undefined, // Will be resolved later by RouteResolver
+            controllerPath: currentController, // Set controller path
+            controllerName: currentControllerName, // Set controller name
             decorators: {
               controller: currentController,
               httpCode: statusCode,
@@ -172,7 +259,8 @@ export class DecoratorScanner {
   }
 
   private buildFullPath(controllerPath: string, routePath: string): string {
-    if (!controllerPath) return routePath;
+    // Simple fallback for now - new architecture will handle complex path resolution
+    if (!controllerPath) return routePath || '/';
     if (!routePath || routePath === '/') return controllerPath;
     
     const controller = controllerPath.endsWith('/') ? controllerPath.slice(0, -1) : controllerPath;

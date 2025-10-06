@@ -47,8 +47,10 @@ export class EnvironmentContext {
 
     // Initialize databases with Promise.all
     if (this.config.databases) {
-      await Promise.all(this.config.databases.map(database => {
-        this.db[database.name] = new DatabaseManager(database, this.workerId);
+      await Promise.all(this.config.databases.map(async database => {
+        const dbManager = new DatabaseManager(database, this.workerId);
+        await dbManager.initialize();
+        this.db[database.name] = dbManager;
       }));
     }
 
@@ -91,5 +93,54 @@ export class EnvironmentContext {
 
   getBus(): IEventBusManager {
     return this.bus;
+  }
+
+  // Seeding methods
+  async seedForFile(fileName: string, databaseName?: string): Promise<void> {
+    if (databaseName) {
+      const db = this.db[databaseName];
+      if (db) {
+        await db.seedForFile(fileName);
+      }
+    } else {
+      // Seed all databases
+      await Promise.all(Object.values(this.db).map(db => db.seedForFile(fileName)));
+    }
+  }
+
+  async seedForTest(testName: string, filePath: string, databaseName?: string): Promise<void> {
+    if (databaseName) {
+      const db = this.db[databaseName];
+      if (db) {
+        await db.seedForTest(testName, filePath);
+      }
+    } else {
+      // Seed all databases
+      await Promise.all(Object.values(this.db).map(db => db.seedForTest(testName, filePath)));
+    }
+  }
+
+  async restoreAfterFile(fileName: string, databaseName?: string): Promise<void> {
+    if (databaseName) {
+      const db = this.db[databaseName];
+      if (db) {
+        await db.restoreAfterFile(fileName);
+      }
+    } else {
+      // Restore all databases
+      await Promise.all(Object.values(this.db).map(db => db.restoreAfterFile(fileName)));
+    }
+  }
+
+  async restoreAfterTest(testName: string, filePath: string, databaseName?: string): Promise<void> {
+    if (databaseName) {
+      const db = this.db[databaseName];
+      if (db) {
+        await db.restoreAfterTest(testName, filePath);
+      }
+    } else {
+      // Restore all databases
+      await Promise.all(Object.values(this.db).map(db => db.restoreAfterTest(testName, filePath)));
+    }
   }
 }

@@ -1,12 +1,14 @@
-import { IDatabaseManager, ITransaction, DBStrategy, DatabaseConfig } from '../types';
+import { IDatabaseManager, ITransaction, DBIsolationStrategy, DatabaseConfig } from '../types';
 import { DBStateManager } from './db-state-manager';
 import { DatabaseTransaction } from './database-transaction';
+import { SeedManager } from './seed-manager';
 import { createServiceLogger } from '../utils/logger';
 
 export class DatabaseManager implements IDatabaseManager {
   private config: DatabaseConfig | undefined;
   private workerId: string;
   private stateManager: DBStateManager;
+  private seedManager: SeedManager;
   private connectionString!: string;
   private currentSavepoint?: string;
   private currentSchema?: string;
@@ -17,11 +19,12 @@ export class DatabaseManager implements IDatabaseManager {
     config: DatabaseConfig | undefined, 
     workerId: string, 
     connectionStrings: Record<string, string> = {},
-    strategy: DBStrategy = 'savepoint'
+    isolation: DBIsolationStrategy = 'savepoint'
   ) {
     this.config = config;
     this.workerId = workerId;
     this.stateManager = new DBStateManager(config as any, workerId, connectionStrings);
+    this.seedManager = new SeedManager(config, workerId, connectionStrings);
     
     // Create logger for this service
     if (config) {
@@ -40,6 +43,7 @@ export class DatabaseManager implements IDatabaseManager {
 
   async initialize(): Promise<void> {
     await this.stateManager.initialize();
+    await this.seedManager.initialize();
     this.connectionString = this.getConnectionString();
   }
 
@@ -65,8 +69,8 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   async snapshot(name: string): Promise<void> {
-    const strategy = this.config?.strategy || 'savepoint';
-    switch (strategy) {
+    const isolation = this.config?.isolation || 'savepoint';
+    switch (isolation) {
       case 'savepoint':
         this.currentSavepoint = await this.stateManager.createSavepoint();
         break;
@@ -89,8 +93,8 @@ export class DatabaseManager implements IDatabaseManager {
   }
 
   async restore(name: string): Promise<void> {
-    const strategy = this.config?.strategy || 'savepoint';
-    switch (strategy) {
+    const isolation = this.config?.isolation || 'savepoint';
+    switch (isolation) {
       case 'savepoint':
         if (this.currentSavepoint) {
           await this.stateManager.rollbackToSavepoint(this.currentSavepoint);
@@ -118,6 +122,27 @@ export class DatabaseManager implements IDatabaseManager {
 
   async reset(): Promise<void> {
     await this.stateManager.cleanup();
+  }
+
+  // Seeding methods
+  async seedForFile(fileName: string): Promise<void> {
+    await this.seedManager.seedForFile(fileName);
+  }
+
+  async seedForTest(testName: string, filePath: string): Promise<void> {
+    await this.seedManager.seedForTest(testName, filePath);
+  }
+
+  async restoreAfterFile(fileName: string): Promise<void> {
+    await this.seedManager.restoreAfterFile(fileName);
+  }
+
+  async restoreAfterTest(testName: string, filePath: string): Promise<void> {
+    await this.seedManager.restoreAfterTest(testName, filePath);
+  }
+
+  getSeedingStatus() {
+    return this.seedManager.getSeedingStatus();
   }
 
   getConnectionString(): string {

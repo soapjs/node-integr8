@@ -260,8 +260,8 @@ export const PROMPTS = {
         }
       ]
     },
-    strategy: {
-      question: "Database strategy:",
+    isolation: {
+      question: "Database isolation strategy:",
       choices: [
         {
           name: "Savepoint (recommended)",
@@ -289,9 +289,9 @@ export const PROMPTS = {
       question: "Seeding strategy:",
       choices: [
         {
-          name: "Once per test suite",
+          name: "Once for all tests",
           value: "once",
-          description: "Seed once at the beginning"
+          description: "Seed once before all tests across all files (fastest, shared data)"
         },
         {
           name: "Per test file",

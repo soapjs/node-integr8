@@ -76,7 +76,7 @@ export interface PromptsConfig {
       question: string;
       choices: PromptChoice[];
     };
-    strategy: {
+    isolation: {
       question: string;
       choices: PromptChoice[];
     };
@@ -220,7 +220,7 @@ export interface InitAnswers {
     category: 'database';
     mode: 'local' | 'container';
     type: string;
-    strategy: string;
+    isolation: string;
     seeding: string;
     seedCommand?: string;
     seedFile?: string;

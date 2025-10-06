@@ -31,20 +31,26 @@ export class SeedManager {
     switch (strategy) {
       case 'once':
         if (!this.hasSeededOnce) {
+          console.log(`🌱 Executing 'once' strategy for file: ${fileName}`);
           await this.executeSeedingStrategy('file', fileName);
           this.hasSeededOnce = true;
+        } else {
+          console.log(`⏭️  Skipping 'once' strategy for file: ${fileName} (already seeded)`);
         }
         break;
         
       case 'per-file':
         if (!this.seededFiles.has(fileName)) {
+          console.log(`🌱 Executing 'per-file' strategy for file: ${fileName}`);
           await this.executeSeedingStrategy('file', fileName);
           this.seededFiles.add(fileName);
+        } else {
+          console.log(`⏭️  Skipping 'per-file' strategy for file: ${fileName} (already seeded)`);
         }
         break;
         
       case 'per-test':
-        // Per-test seeding is handled in seedForTest
+        console.log(`⏭️  Skipping 'per-test' strategy for file: ${fileName} (handled in seedForTest)`);
         break;
     }
   }
@@ -56,15 +62,21 @@ export class SeedManager {
     
     switch (strategy) {
       case 'once':
+        console.log(`⏭️  Skipping 'once' strategy for test: ${testName} (already handled at file level)`);
+        break;
+        
       case 'per-file':
-        // Already handled at file level
+        console.log(`⏭️  Skipping 'per-file' strategy for test: ${testName} (already handled at file level)`);
         break;
         
       case 'per-test':
         const testKey = `${filePath}:${testName}`;
         if (!this.seededTests.has(testKey)) {
+          console.log(`🌱 Executing 'per-test' strategy for test: ${testName} in file: ${filePath}`);
           await this.executeSeedingStrategy('test', testName, filePath);
           this.seededTests.add(testKey);
+        } else {
+          console.log(`⏭️  Skipping 'per-test' strategy for test: ${testName} (already seeded)`);
         }
         break;
     }
@@ -120,19 +132,27 @@ export class SeedManager {
 
   private async executeSeedingStrategy(context: 'initialize' | 'file' | 'test', ...args: string[]): Promise<void> {
     const seedConfig = this.databaseConfig!.seed!;
+    const startTime = Date.now();
     
     try {
+      console.log(`🌱 Starting seeding for ${context}: ${args.join(', ')}`);
+      console.log(`   Strategy: ${seedConfig.strategy || 'per-file'}`);
+      console.log(`   Worker ID: ${this.workerId}`);
+      
       if (seedConfig.command) {
         await this.executeCommandSeeding(seedConfig);
       }
+      
       // Create snapshot for restoration
       if (context !== 'initialize') {
         await this.createSnapshot();
       }
       
-      console.log(`✅ Seeding completed for ${context}: ${args.join(', ')}`);
+      const duration = Date.now() - startTime;
+      console.log(`✅ Seeding completed for ${context}: ${args.join(', ')} in ${duration}ms`);
     } catch (error) {
-      console.error(`❌ Seeding failed for ${context}:`, error);
+      const duration = Date.now() - startTime;
+      console.error(`❌ Seeding failed for ${context}: ${args.join(', ')} after ${duration}ms:`, error);
       throw error;
     }
   }
@@ -140,7 +160,10 @@ export class SeedManager {
   private async executeCommandSeeding(seedConfig: SeedConfig): Promise<void> {
     if (!seedConfig.command) return;
     
-    console.log(`Running seed command: ${seedConfig.command}`);
+    const startTime = Date.now();
+    console.log(`🌱 Running seed command: ${seedConfig.command}`);
+    console.log(`   Worker ID: ${this.workerId}`);
+    console.log(`   Timeout: ${seedConfig.timeout || 30000}ms`);
     
     const { exec } = require('child_process');
     const { promisify } = require('util');
@@ -158,13 +181,20 @@ export class SeedManager {
         }
       });
       
+      const duration = Date.now() - startTime;
+      
       if (stderr) {
-        console.warn('Seed command stderr:', stderr);
+        console.warn('⚠️  Seed command stderr:', stderr);
       }
       
-      console.log('Seed command completed successfully');
+      if (stdout) {
+        console.log('📝 Seed command output:', stdout);
+      }
+      
+      console.log(`✅ Seed command completed successfully in ${duration}ms`);
     } catch (error) {
-      console.error('Seed command failed:', error);
+      const duration = Date.now() - startTime;
+      console.error(`❌ Seed command failed after ${duration}ms:`, error);
       throw error;
     }
   }

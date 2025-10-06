@@ -396,9 +396,9 @@ export class InteractiveInit {
       },
       {
         type: 'list',
-        name: 'strategy',
-        message: this.prompts.databaseConfig.strategy.question,
-        choices: this.prompts.databaseConfig.strategy.choices.map(choice => ({
+        name: 'isolation',
+        message: this.prompts.databaseConfig.isolation.question,
+        choices: this.prompts.databaseConfig.isolation.choices.map(choice => ({
           name: `${choice.name} - ${choice.description}`,
           value: choice.value
         }))
@@ -571,7 +571,7 @@ export class InteractiveInit {
       category: 'database',
       mode: dbConfig.mode,
       type: dbConfig.type,
-      strategy: dbConfig.strategy,
+      isolation: dbConfig.isolation,
       seeding: dbConfig.seeding,
       ...(currentComponent.config.seedCommand && { seedCommand: currentComponent.config.seedCommand }),
       ...(currentComponent.config.seedFile && { seedFile: currentComponent.config.seedFile }),
@@ -920,7 +920,7 @@ export class InteractiveInit {
         category: 'database',
         type: db.type,
         mode: db.mode,
-        strategy: db.strategy as any,
+        isolation: db.isolation as any,
         seeding: {
           strategy: db.seeding as any,
           command: db.seedCommand,

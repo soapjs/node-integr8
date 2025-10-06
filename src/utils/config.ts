@@ -47,7 +47,6 @@ export function createPostgresDatabase(name: string = 'postgres', options?: Part
     name,
     category: 'database',
     type: 'postgres',
-    strategy: options?.strategy || 'schema',
     isolation: options?.isolation || 'schema',
     container: {
       image: 'postgres:15-alpine',
@@ -80,7 +79,6 @@ export function createMysqlDatabase(name: string = 'mysql', options?: Partial<Da
     name,
     category: 'database',
     type: 'mysql',
-    strategy: options?.strategy || 'schema',
     isolation: options?.isolation || 'schema',
     container: {
       image: 'mysql:8.0',
@@ -114,7 +112,6 @@ export function createMongoDatabase(name: string = 'mongo', options?: Partial<Da
     name,
     category: 'database',
     type: 'mongo',
-    strategy: options?.strategy || 'schema',
     isolation: options?.isolation || 'schema',
     container: {
       image: 'mongo:7.0',
@@ -147,7 +144,6 @@ export function createRedisDatabase(name: string = 'redis', options?: Partial<Da
     name,
     category: 'database',
     type: 'redis',
-    strategy: options?.strategy || 'schema',
     isolation: options?.isolation || 'schema',
     container: {
       image: 'redis:7-alpine',

@@ -264,3 +264,61 @@ export function isEnvironmentReady(): boolean {
 export function isUsingExistingEnvironment(): boolean {
   return usingExistingEnvironment;
 }
+
+/**
+ * Seeds the database for a specific test file.
+ * This should be called in beforeAll() hooks for each test file.
+ * 
+ * @param fileName - The name of the test file
+ * @param databaseName - Optional specific database name to seed
+ */
+export async function seedForFile(fileName: string, databaseName?: string): Promise<void> {
+  if (!context) {
+    throw new Error('Environment context not available. Make sure to call setupEnvironment() before running tests.');
+  }
+  await context.seedForFile(fileName, databaseName);
+}
+
+/**
+ * Seeds the database for a specific test.
+ * This should be called in beforeEach() hooks for individual tests.
+ * 
+ * @param testName - The name of the test
+ * @param filePath - The path to the test file
+ * @param databaseName - Optional specific database name to seed
+ */
+export async function seedForTest(testName: string, filePath: string, databaseName?: string): Promise<void> {
+  if (!context) {
+    throw new Error('Environment context not available. Make sure to call setupEnvironment() before running tests.');
+  }
+  await context.seedForTest(testName, filePath, databaseName);
+}
+
+/**
+ * Restores the database state after a test file.
+ * This should be called in afterAll() hooks for each test file.
+ * 
+ * @param fileName - The name of the test file
+ * @param databaseName - Optional specific database name to restore
+ */
+export async function restoreAfterFile(fileName: string, databaseName?: string): Promise<void> {
+  if (!context) {
+    throw new Error('Environment context not available. Make sure to call setupEnvironment() before running tests.');
+  }
+  await context.restoreAfterFile(fileName, databaseName);
+}
+
+/**
+ * Restores the database state after a test.
+ * This should be called in afterEach() hooks for individual tests.
+ * 
+ * @param testName - The name of the test
+ * @param filePath - The path to the test file
+ * @param databaseName - Optional specific database name to restore
+ */
+export async function restoreAfterTest(testName: string, filePath: string, databaseName?: string): Promise<void> {
+  if (!context) {
+    throw new Error('Environment context not available. Make sure to call setupEnvironment() before running tests.');
+  }
+  await context.restoreAfterTest(testName, filePath, databaseName);
+}

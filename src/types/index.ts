@@ -1,9 +1,8 @@
 export type TestType = 'api' | 'e2e' | 'integration' | 'custom';
 export type TestFramework = 'jest' | 'vitest';
 export type SeedStrategy = 'once' | 'per-file' | 'per-test' | 'custom';
-export type DBStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot' | 'custom';
+export type DBIsolationStrategy = 'savepoint' | 'schema' | 'database' | 'snapshot' | 'custom';
 export type DBRestore = 'none' | 'rollback' | 'reset' | 'snapshot';
-export type DBIsolation = 'schema' | 'db' | 'none';
 export type MessagingType = 'kafka' | 'rabbitmq' | 'redis-streams' | 'grpc' | 'nats' | 'sqs' | 'pubsub' | string;
 export type AuthType = 'jwt' | 'oauth2' | 'apikey' | 'basic' | 'session' | string;
 
@@ -128,8 +127,7 @@ export type ServiceConfig = ComponentConfig & {
 
 export type DatabaseConfig = ComponentConfig & {
   category: 'database';
-  strategy?: DBStrategy;
-  isolation?: DBIsolation;
+  isolation?: DBIsolationStrategy;
   seed?: SeedConfig;
   container?: ContainerConfig & { envMapping?: DatabaseEnvMapping};
 }
@@ -269,6 +267,18 @@ export interface IDatabaseManager {
   restore(name: string): Promise<void>;
   reset(): Promise<void>;
   getConnectionString(): string;
+  
+  // Seeding methods
+  seedForFile(fileName: string): Promise<void>;
+  seedForTest(testName: string, filePath: string): Promise<void>;
+  restoreAfterFile(fileName: string): Promise<void>;
+  restoreAfterTest(testName: string, filePath: string): Promise<void>;
+  getSeedingStatus(): {
+    hasSeededOnce: boolean;
+    seededFiles: string[];
+    seededTests: string[];
+    currentSnapshot: string | null;
+  };
 }
 
 export interface ITransaction {

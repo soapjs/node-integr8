@@ -33,28 +33,62 @@ export type Integr8Config = {
   testTimeout?: number;
   setupTimeout?: number;
   teardownTimeout?: number;
-  endpointDiscovery?: EndpointDiscoveryConfig;
-  scanning?: ScanningConfig;
+  scan?: ScanConfig;
+  coverage?: CoverageConfig;
 }
 
-export type ScanningConfig = {
-  decorators?: DecoratorScanningConfig;
-  output: string;
-}
-
-export type DecoratorScanningConfig = {
-  enabled?: boolean;
-  framework?: 'nestjs' | 'express' | 'custom';
+export type ScanConfig = {
   decorators?: {
-    controllers?: string[];
-    routes?: string[];
-    statusCodes?: string[];
-    apiDocs?: string[];
-    routers?: string[];
-    custom?: Record<string, string[]>;
+    enabled?: boolean;
+    framework?: 'nestjs' | 'express' | 'custom';
+    decorators?: {
+      controllers?: string[];
+      routes?: string[];
+      statusCodes?: string[];
+      apiDocs?: string[];
+      routers?: string[];
+      custom?: Record<string, string[]>;
+    };
+    paths?: string[];
+    exclude?: string[];
   };
-  paths?: string[];
-  exclude?: string[];
+  discovery?: {
+    command?: string;
+    timeout?: number;
+    outputFormat?: 'json' | 'text';
+  };
+  output?: string;
+  generateTests?: boolean;
+}
+
+export type CoverageConfig = {
+  output: string;
+  threshold?: number;
+}
+
+export type CoverageReport = {
+  timestamp: string;
+  summary: {
+    total: number;
+    tested: number;
+    untested: number;
+    percentage: number;
+  };
+  byMethod: Record<string, {
+    total: number;
+    tested: number;
+    percentage: number;
+  }>;
+  untested: Array<{
+    method: string;
+    path: string;
+    source?: string;
+  }>;
+  tested: Array<{
+    method: string;
+    path: string;
+    testFile?: string;
+  }>;
 }
 
 export type ExtendedRouteInfo = RouteInfo & {
@@ -70,10 +104,6 @@ export type ExtendedRouteInfo = RouteInfo & {
   testScenarios?: TestScenario[];
 }
 
-export type EndpointDiscoveryConfig = {
-  command: string;
-  timeout: number;
-};
 
 export type LocalProcessConfig = {
   command: string;

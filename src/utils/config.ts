@@ -16,32 +16,6 @@ import {
   HttpConfig
 } from '../types';
 
-export function createConfig(config: Partial<Integr8Config>): Integr8Config {
-  const defaultConfig: Integr8Config = {
-    services: [],
-    databases: [],
-    messaging: [],
-    testType: 'api',
-    testDir: './integr8/tests/api',
-    testFramework: 'jest',
-    testTimeout: 30000,      // 30 seconds default
-    setupTimeout: 10000,     // 10 seconds default
-    teardownTimeout: 5000,   // 5 seconds default
-    endpointDiscovery: {
-      command: 'npm run list-routes',
-      timeout: 10000
-    }
-  };
-
-  return {
-    ...defaultConfig,
-    ...config,
-    services: config.services || [],
-    databases: config.databases || [],
-    messaging: config.messaging || []
-  };
-}
-
 export function createPostgresDatabase(name: string = 'postgres', options?: Partial<DatabaseConfig>): DatabaseConfig {
   return {
     name,

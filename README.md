@@ -2,7 +2,7 @@
 
 Framework-agnostic integration testing with Testcontainers. Test your APIs against real databases and services without mocking.
 
-> ⚠️ **Work in Progress** - Currently in development towards v1.0.0.
+> ⚠️ **Work in Progress** - Currently in development towards v1.0.0. API is stable and won't change, only additions will be made.
 
 ## What is Integr8?
 
@@ -12,6 +12,7 @@ Integr8 is a powerful testing framework that solves the problem of flaky, unreli
 - **Database State Management**: Smart strategies for deterministic test isolation
 - **Framework Agnostic**: Works with Express, NestJS, Fastify, and more
 - **Override System**: Mock external services while keeping real database
+- **Coverage Analysis**: Track which endpoints are tested and enforce thresholds
 - **Parallel Testing**: Isolated environments for each test worker
 - **CLI Tools**: Easy setup and management with clean, colored output
 
@@ -19,6 +20,7 @@ Integr8 is a powerful testing framework that solves the problem of flaky, unreli
 
 - **Deterministic Tests**: No more flaky tests due to shared database state
 - **Real API Testing**: Test against actual HTTP endpoints, not mocks
+- **Dynamic Mocking**: Override services, guards, and middleware at runtime without restart
 - **Fast Feedback**: Savepoint rollbacks instead of full database reseeds
 - **Easy Setup**: One command to spin up your entire test environment
 - **Framework Independence**: Switch frameworks without changing your tests
@@ -34,58 +36,97 @@ npm install @soapjs/integr8
 ### 1. Initialize
 
 ```bash
-# Local development
-npx integr8 init --app-type local
-
-# Docker Compose
-npx integr8 init --app-type docker-compose
-
-# Container only
-npx integr8 init --app-type container
+# Interactive mode
+npx integr8 init -i
 ```
 
-### 2. Configure
+### 2. Review the config
 
-Edit `integr8.api.config.json`:
+Edit `integr8.api.config.js`:
 
-```json
-{
-  "services": [
+```js
+module.exports = {
+  testType: "api",
+  testDir: "integr8/tests",
+  services: [
     {
-      "name": "postgres",
-      "type": "postgres",
-      "image": "postgres:15-alpine",
-      "ports": [5432],
-      "environment": {
-        "POSTGRES_DB": "testdb",
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PASSWORD": "testpass"
+      name: "app",
+      category: "service",
+      type: undefined,
+      mode: "local",
+      communicationType: "http",
+      http: {
+        baseUrl: "http://localhost",
+        port: 3000,
+        prefix: "/api"
       },
-      "dbStrategy": "savepoint",
-      "seed": {
-        "command": "npm run seed"
-      }
-    },
-    {
-      "name": "app",
-      "type": "service",
-      "image": "my-app:latest",
-      "command": "npm start",
-      "ports": [3000],
-      "healthcheck": {
-        "command": "curl -f http://localhost:3000/health",
-        "interval": 1000,
-        "timeout": 30000,
-        "retries": 3
+      framework: "nestjs",
+      readiness: {
+        enabled: true,
+        endpoint: "/health",
+        command: ""
       },
-      "dependsOn": ["postgres"]
+      local: {
+        command: "npm start",
+        workingDirectory: "."
+      },
     }
   ],
-  "adapters": [
-    { "type": "express" }
+  databases: [
+    {
+      name: "main-db",
+      category: "database",
+      type: "postgresql",
+      mode: "container",
+      isolation: "savepoint",
+      seeding: {
+        strategy: "per-file",
+        command: "ts-node src/seeds/seed.ts",
+      },
+      container: {
+        image: "postgres:15-alpine",
+        containerName: "test-db",
+        ports: [
+          {
+            host: 5432,
+            container: 5432
+          }
+        ],
+        environment: {
+          POSTGRES_USER: "postgres",
+          POSTGRES_PASSWORD: "password",
+          POSTGRES_DB: "testdb"
+        },
+        envMapping: {
+          host: "DB_HOST",
+          port: "DB_PORT",
+          username: "DB_USERNAME",
+          password: "DB_PASSWORD",
+          database: "DB_NAME",
+          url: "DATABASE_URL"
+        }
+      }
+    }
   ],
-  "testDir": "tests"
-}
+  storages: [],
+  messaging: [],
+  scanning: {
+    decorators: {
+      enabled: true,
+      framework: 'nestjs',
+      decorators: {
+        controllers: ['@Controller', '@RestController'],
+        routes: ['@Get', '@Post', '@Put', '@Delete', '@Patch'],
+        statusCodes: ['@HttpCode'],
+        apiDocs: ['@ApiResponse', '@ApiOperation']
+      },
+      paths: ['src'],
+      // paths: ['src/controllers', 'src/modules'],
+      exclude: ['**/*.spec.ts', '**/*.test.ts']
+    },
+    output: 'lista.json'
+  }
+};
 ```
 
 ### 3. Generate Tests
@@ -105,174 +146,36 @@ npx integr8 scan --command "npm run list-routes"
 npx integr8 up
 
 # Run tests (detects existing environment)
-npx integr8 run
+npx integr8 test
 
 # Stop environment
 npx integr8 down
+
+# or run 
+npx integr8 ci
 ```
 
-## Configuration Examples
-
-### Docker Compose Setup
-
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "image": "postgres:15-alpine",
-      "ports": [5432],
-      "environment": {
-        "POSTGRES_DB": "testdb",
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PASSWORD": "testpass"
-      },
-      "dbStrategy": "savepoint",
-      "seed": {
-        "command": "npm run seed"
-      }
-    },
-    {
-      "name": "app",
-      "type": "service",
-      "image": "my-app:latest",
-      "command": "npm start",
-      "ports": [3000],
-      "healthcheck": {
-        "command": "curl -f http://localhost:3000/health",
-        "interval": 1000,
-        "timeout": 30000,
-        "retries": 3
-      },
-      "dependsOn": ["postgres"]
-    }
-  ],
-  "adapters": [
-    { "type": "express" }
-  ],
-  "testDir": "tests"
-}
-```
-
-### Local Development Setup
-
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "image": "postgres:15-alpine",
-      "ports": [5432],
-      "environment": {
-        "POSTGRES_DB": "testdb",
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PASSWORD": "testpass"
-      },
-      "dbStrategy": "savepoint",
-      "seed": {
-        "command": "npm run seed"
-      }
-    },
-    {
-      "name": "app",
-      "type": "service",
-      "mode": "local",
-      "command": "npm start",
-      "ports": [3000],
-      "workingDirectory": ".",
-      "healthcheck": {
-        "command": "curl -f http://localhost:3000/health",
-        "interval": 1000,
-        "timeout": 30000,
-        "retries": 3
-      },
-      "dependsOn": ["postgres"]
-    }
-  ],
-  "adapters": [
-    { "type": "express" }
-  ],
-  "testDir": "tests"
-}
-```
-
-### Multiple Services Setup
-
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "image": "postgres:15-alpine",
-      "ports": [5432],
-      "environment": {
-        "POSTGRES_DB": "testdb",
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PASSWORD": "testpass"
-      },
-      "dbStrategy": "savepoint",
-      "seed": {
-        "command": "npm run seed"
-      }
-    },
-    {
-      "name": "redis",
-      "type": "redis",
-      "image": "redis:7-alpine",
-      "ports": [6379]
-    },
-    {
-      "name": "mailhog",
-      "type": "mailhog",
-      "image": "mailhog/mailhog:latest",
-      "ports": [1025, 8025]
-    },
-    {
-      "name": "app",
-      "type": "service",
-      "image": "my-app:latest",
-      "command": "npm start",
-      "ports": [3000],
-      "healthcheck": {
-        "command": "curl -f http://localhost:3000/health",
-        "interval": 1000,
-        "timeout": 30000,
-        "retries": 3
-      },
-      "dependsOn": ["postgres", "redis", "mailhog"]
-    }
-  ],
-  "adapters": [
-    { "type": "express" }
-  ],
-  "testDir": "tests"
-}
-```
-
-## Database Strategies
+## Database Isolation Strategies
 
 Integr8 provides different database isolation strategies with intelligent recommendations:
 
 > 📚 **New to database strategies?** Check out our [comprehensive guide](./docs/database-strategies.md) that explains everything in simple terms!
 
-### 🎯 Smart Strategy Selection
+### 🎯 Smart Isolation Strategy Selection
 
 The CLI now automatically shows only compatible strategies for your database type during interactive setup:
 
 ```bash
 # Interactive setup now shows only compatible strategies
-npx integr8 init --interactive
+npx integr8 init -i
 ```
 
-### Available Strategies
+### Available Isolation Strategies
 
 #### Savepoint Strategy (Fastest)
 ```json
 {
-  "dbStrategy": "savepoint"
+  "isolation": "savepoint"
 }
 ```
 - ⚡⚡⚡⚡⚡ Fastest (~1ms setup)
@@ -283,7 +186,7 @@ npx integr8 init --interactive
 #### Schema Strategy (Balanced)
 ```json
 {
-  "dbStrategy": "schema"
+  "isolation": "schema"
 }
 ```
 - ⚡⚡⚡⚡ Good speed (~50ms setup)
@@ -294,7 +197,7 @@ npx integr8 init --interactive
 #### Database Strategy (Isolated)
 ```json
 {
-  "dbStrategy": "database"
+  "isolation": "database"
 }
 ```
 - ⚡⚡⚡ Slower (~200ms setup)
@@ -305,7 +208,7 @@ npx integr8 init --interactive
 #### Snapshot Strategy (Universal)
 ```json
 {
-  "dbStrategy": "snapshot"
+  "isolation": "snapshot"
 }
 ```
 - ⚡⚡ Slowest (~1000ms setup)
@@ -313,36 +216,294 @@ npx integr8 init --interactive
 - **Compatible with:** PostgreSQL, MySQL, MongoDB
 - **Best for:** Complex scenarios
 
-#### Hybrid Strategies
-- `hybrid-savepoint-schema` - Combine savepoints with schema isolation
-- `hybrid-schema-database` - Combine schema with database isolation  
-- `transactional-schema` - Use transactions within schemas
+## Endpoint Scanning & Test Generation
+
+Integr8 can automatically scan your codebase for endpoints and generate test files.
+
+### Configuration
+
+Configure scanning in `integr8.config.json`:
+
+```json
+{
+  "scan": {
+    "decorators": {
+      "enabled": true,
+      "framework": "nestjs",
+      "paths": ["src"],
+      "exclude": ["**/*.spec.ts", "**/*.test.ts"]
+    },
+    "discovery": {
+      "command": "npm run list-routes",
+      "timeout": 10000
+    },
+    "output": "integr8/tests",
+    "generateTests": true
+  }
+}
+```
+
+### Scan Entire Project
+
+```bash
+# Scan decorators and save endpoints to JSON
+npx integr8 scan --decorators --output endpoints.json
+
+# Scan and auto-generate test files
+npx integr8 scan --decorators --generate-tests
+
+# Use discovery command instead
+npx integr8 scan --command "npm run list-routes"
+```
+
+### Scan Specific Files or Directories
+
+You can target specific files or directories for scanning:
+
+```bash
+# Scan a specific file
+npx integr8 scan --decorators --file src/controllers/user.controller.ts --generate-tests
+
+# Scan a specific directory
+npx integr8 scan --decorators --dir src/controllers --generate-tests
+
+# Combine both
+npx integr8 scan --decorators --file src/auth/auth.controller.ts --dir src/api --generate-tests
+```
+
+This is useful when:
+- 🎯 You're adding a new controller and want to quickly generate tests for it
+- 📁 You're working on a specific module and need tests only for that directory
+- 🚀 You want to iteratively generate tests as you develop
+
+The `--file` and `--dir` options work only with `--decorators` flag.
+
+> 📚 **Full guide**: See [Scan Configuration](./docs/scan-configuration.md) for complete examples and migration guide.
+
+## Endpoint Coverage Analysis
+
+Track which of your API endpoints are covered by tests:
+
+```bash
+# Analyze coverage (auto-detects config)
+npx integr8 coverage
+
+# Output:
+Endpoint Coverage Report
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Summary:
+  Total Endpoints:    45
+  Tested Endpoints:   32 (71.1%)
+  Untested Endpoints: 13 (28.9%)
+
+By HTTP Method:
+  GET     15/20  (75.0%)  ████████████████░░░░
+  POST    10/15  (66.7%)  █████████████░░░░░░░
+  PUT      4/6   (66.7%)  █████████████░░░░░░░
+  DELETE   3/4   (75.0%)  ████████████████░░░░
+```
+
+### Configuration
+
+```json
+{
+  "coverage": {
+    "output": "coverage-report.json",
+    "threshold": 70
+  }
+}
+```
+
+### Features
+
+- Visual coverage report with progress bars
+- 🎯 Intelligent path matching (`/users/123` matches `/users/:id`)
+- 📈 Coverage by HTTP method
+- 🚦 Threshold enforcement for CI/CD
+- JSON report for tracking over time
+- 🔗 Auto-shows after `scan` if configured
+
+> 📚 **Full guide**: See [Coverage Guide](./docs/coverage.md) for complete documentation and CI/CD integration.
+
+## Override System - Dynamic Mocking
+
+Integr8 provides a powerful **override system** that allows you to dynamically mock any component of your application at runtime - no restart needed!
+
+> 📚 **Full documentation**: See [Override System Guide](./docs/override-system.md) for complete examples and API reference.
+
+### Quick Example
+
+```typescript
+import { setupEnvironment, getEnvironmentContext } from '@soapjs/integr8';
+
+describe('User Tests', () => {
+  beforeAll(async () => {
+    await setupEnvironment();
+  });
+
+  test('should mock user service', async () => {
+    const ctx = getEnvironmentContext();
+    
+    // Dynamically mock UserService
+    await ctx.getCtx().override.service('UserService').withMock({
+      findById: async (id) => ({ id, name: 'Mock User' })
+    });
+    
+    const response = await ctx.getHttp().get('/users/123');
+    expect(response.data.name).toBe('Mock User');
+  });
+
+  test('should test as admin', async () => {
+    const ctx = getEnvironmentContext();
+    
+    // Mock authentication
+    await ctx.getCtx().override.auth().asAdmin();
+    
+    const response = await ctx.getHttp().post('/admin/users', {
+      name: 'New User'
+    });
+    
+    expect(response.status).toBe(201);
+  });
+});
+```
+
+### What You Can Mock
+
+- **Services** - Mock any service or provider
+- **Repositories** - Override database repositories
+- **Guards** - Control authorization logic (NestJS)
+- **Middleware** - Modify request/response flow
+- **Authentication** - Test with different user roles and permissions
+- **External APIs** - Mock third-party integrations
+
+### Integration with NestJS
+
+```bash
+npm install @soapjs/integr8-nestjs
+```
+
+```typescript
+// app.module.ts
+import { Integr8TestModule } from '@soapjs/integr8-nestjs';
+
+@Module({
+  imports: [
+    ...(process.env.NODE_ENV === 'test' ? [Integr8TestModule] : [])
+  ]
+})
+export class AppModule {}
+```
+
+```typescript
+// main.ts
+import { bootstrapNestJsIntegr8 } from '@soapjs/integr8-nestjs';
+
+if (process.env.INTEGR8_MODE === 'true') {
+  const app = await bootstrapNestJsIntegr8(AppModule);
+  await app.listen(3000);
+}
+```
+
+See [NestJS Integration Example](./examples/nestjs-integration/) for complete setup.
+
+## Automatic Database Seeding
+
+Integr8 provides **automatic database seeding** that works transparently in the background - no manual hooks needed!
+
+### How It Works
+
+When you configure seeding in your database config, Integr8 automatically:
+1. Detects your seeding strategy
+2. Registers global test hooks (`beforeAll`, `afterAll`, `beforeEach`, `afterEach`)
+3. Tracks test files and individual tests
+4. Executes seeding at the right time based on your strategy
+5. Restores database state automatically
+
+**You just write clean tests** - the framework handles everything in the background!
+
+### Configuration
+
+```json
+{
+  "databases": [
+    {
+      "name": "postgres",
+      "type": "postgres",
+      "dbStrategy": "savepoint",
+      "seed": {
+        "strategy": "per-file",        // once | per-file | per-test
+        "command": "npm run seed",     // Command to run
+        "timeout": 30000,              // Timeout in ms
+        "restore": "rollback"          // none | rollback | reset | snapshot
+      }
+    }
+  ]
+}
+```
+
+### Seeding Strategies
+
+#### `once` - Seed Once for All Tests
+```json
+{ "seed": { "strategy": "once" } }
+```
+- ⚡⚡⚡⚡⚡ Fastest - seeds only once
+- Best for read-only tests
+- No isolation between tests
+
+#### `per-file` - Seed Per Test File (Default)
+```json
+{ "seed": { "strategy": "per-file" } }
+```
+- ⚡⚡⚡⚡ Fast - seeds once per file
+- Good isolation between files
+- Best for most use cases
+
+#### `per-test` - Seed Per Individual Test
+```json
+{ "seed": { "strategy": "per-test" } }
+```
+- ⚡⚡⚡ Slower - seeds before each test
+- Full isolation between tests
+- Best for tests that modify data heavily
+
+### Clean Test Code
+
+No need for manual seeding calls! Just write clean tests:
+
+```typescript
+import { setupEnvironment, teardownEnvironment } from '@soapjs/integr8';
+
+describe('My API Tests', () => {
+  beforeAll(async () => {
+    const config = require('./integr8.config.json');
+    await setupEnvironment(config);  // That's it! Seeding is automatic
+  });
+
+  afterAll(async () => {
+    await teardownEnvironment();
+  });
+
+  test('should work with seeded data', async () => {
+    // Data is automatically seeded based on your strategy
+    // Just write your test logic!
+  });
+});
+```
+
+The framework automatically:
+- Seeds data before your tests (based on strategy)
+- Restores state after tests (based on restore setting)
+- Manages everything in the background
 
 ## Logging Control
 
 Integr8 provides fine-grained logging control for each service:
 
-> 📚 **Need help with logging?** Check out our [detailed logging guide](./docs/logging-control.md) with examples and best practices!
-
 ### Service-Level Logging
 
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "logging": false,           // Disable all logs
-      "logging": true,            // Enable all logs (debug level)
-      "logging": "error",         // Only show errors
-      "logging": "warn",          // Show warnings and errors
-      "logging": "log",           // Show log, warn, error (default)
-      "logging": "info",          // Show info, log, warn, error
-      "logging": "debug"          // Show everything
-    }
-  ]
-}
-```
 
 ### Log Levels Hierarchy
 - `error` - Only errors
@@ -417,6 +578,9 @@ npx integr8 scan --json endpoints.json
 
 # Generate only new tests (skip existing)
 npx integr8 scan --type only-new
+
+# Scan and generate tests based on decorators
+npx integr8 scan --decorators --generate-tests
 ```
 
 ### Test Creation
@@ -434,147 +598,26 @@ npx integr8 create --url "http://localhost:3000/api/users" --method POST --body 
 npx integr8 create --url "http://localhost:3000/api/users" --method GET --queryParams '{"page": 1, "limit": 10}' --expectedStatus 200
 ```
 
-## Endpoint Discovery Configuration
-
-Configure how integr8 discovers your API endpoints:
-
-```json
-{
-  "endpointDiscovery": {
-    "command": "npm run list-routes",
-    "timeout": 10000
-  }
-}
-```
-
-- `command` - Command to run for endpoint discovery (default: "npm run list-routes")
-- `timeout` - Timeout in milliseconds (default: 10000)
-
-The command should output JSON array of endpoints with this structure:
-```json
-[
-  {
-    "method": "GET",
-    "path": "/api/users",
-    "resource": "users",
-    "url": "http://localhost:3000/api/users",
-    "description": "Get all users"
-  },
-  {
-    "method": "POST",
-    "path": "/api/users",
-    "resource": "users",
-    "url": "http://localhost:3000/api/users",
-    "description": "Create new user"
-  },
-  {
-    "method": "GET",
-    "path": "/api/users/123",
-    "resource": "users",
-    "url": "http://localhost:3000/api/users/123",
-    "description": "Get user by ID"
-  }
-]
-```
-
-**Required fields:**
-- `method` - HTTP method (GET, POST, PUT, DELETE, etc.)
-- `path` - API path (e.g., "/api/users")
-- `url` - Full URL (e.g., "http://localhost:3000/api/users")
-
-**Optional fields:**
-- `resource` - Resource name for test file naming (e.g., "users"). If provided, test files will be named `users.get.api.test.ts`, `users.post.api.test.ts`, etc.
-- `endpoint` - Explicit name for test file (fallback if resource not provided)
-- `description` - Human-readable description
-- `body` - Request body template
-- `queryParams` - Query parameters template
-- `pathParams` - Path parameters template
-- `expectedStatus` - Expected HTTP status code
-- `expectedResponse` - Expected response template
-
-**Test file naming priority:**
-1. `resource` field (e.g., "users" → `users.get.api.test.ts`)
-2. `endpoint` field (e.g., "user-details" → `user-details.get.api.test.ts`)
-3. Auto-generated from path (e.g., "/api/users" → `users.get.api.test.ts`)
-
-## Test Creation with JSON Files
-
-For the `create` command, you can provide a JSON file with detailed test configurations:
-
-```json
-[
-  {
-    "url": "http://localhost:3000/api/users",
-    "method": "GET",
-    "expectedStatus": 200,
-    "description": "Get all users"
-  },
-  {
-    "url": "http://localhost:3000/api/users",
-    "method": "POST",
-    "body": {
-      "name": "John Doe",
-      "email": "john@example.com"
-    },
-    "expectedStatus": 201,
-    "expectedResponse": {
-      "id": 1,
-      "name": "John Doe",
-      "email": "john@example.com"
-    },
-    "description": "Create new user"
-  },
-  {
-    "url": "http://localhost:3000/api/users/123",
-    "method": "GET",
-    "pathParams": {
-      "id": "123"
-    },
-    "queryParams": {
-      "include": "profile"
-    },
-    "expectedStatus": 200,
-    "description": "Get user by ID with profile"
-  }
-]
-```
-
-### JSON Configuration Options
-
-- `url` - Full URL to test (required)
-- `method` - HTTP method (default: GET)
-- `body` - Request body as JSON object
-- `queryParams` - Query parameters as JSON object
-- `pathParams` - Path parameters as JSON object
-- `expectedStatus` - Expected HTTP status code
-- `expectedResponse` - Expected response as JSON object
-- `description` - Test description
-
-## BaseUrl Auto-Detection
-
-The `create` command automatically detects the base URL from your configuration:
-
-1. **HTTP Config**: Uses `http.baseUrl` if configured
-2. **HTTP Port**: Uses `http.port` to build `http://localhost:PORT`
-3. **Container Ports**: Uses first container port if available
-4. **Fallback**: Defaults to `http://localhost:3000`
-
-This means URLs like `http://localhost:3000/api/users` will be normalized to `/api/users` for test file generation.
-
 ## 📚 Documentation
 
 For detailed guides and explanations, check out our documentation:
 
+- **[Configuration Discovery](./docs/config-discovery.md)** - Auto-detection of config files
+- **[Coverage Analysis](./docs/coverage.md)** - Endpoint test coverage tracking
+- **[Override System Guide](./docs/override-system.md)** - Dynamic mocking and component override system
 - **[Database Strategies Guide](./docs/database-strategies.md)** - Complete explanation of database isolation strategies
-- **[Logging Control Guide](./docs/logging-control.md)** - How to control log output for each service
-- **[Configuration Examples](./docs/configuration-examples.md)** - Real-world configuration examples
-- **[Documentation Index](./docs/README.md)** - Overview of all available guides
+- **[Scan Configuration](./docs/scan-configuration.md)** - Endpoint scanning configuration and examples
+- **[Seeding Strategies](./docs/seeding-database.md)** - Database seeding examples and strategies
 
-## NestJS Users
+### Examples
 
-If you're using NestJS, check out the dedicated version with enhanced NestJS support:
+- **[NestJS Integration](./examples/nestjs-integration/)** - Complete NestJS setup with override system
+- **[Express Integration](./examples/express-integration/)** - Complete Express.js setup with override system
 
-**[@soapjs/integr8-nestjs](https://www.npmjs.com/package/@soapjs/integr8-nestjs)**
+### Framework Packages
+
+- **[@soapjs/integr8-nestjs](https://github.com/soapjs/integr8-nestjs)** - NestJS integration package
+- **[@soapjs/integr8-express](https://github.com/soapjs/integr8-express)** - Express.js integration package
 
 ## License
 

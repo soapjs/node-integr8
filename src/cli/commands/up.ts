@@ -5,6 +5,7 @@ import { EnvironmentOrchestrator } from '../../core/environment-orchestrator';
 import { Integr8Config } from '../../types';
 import { Logger } from '../../utils/logger';
 import { StatusServer, ComponentStatus } from '../../utils/status-server';
+import { loadConfigFromFile } from '../../core/test-globals';
 
 const logger = new Logger({ level: 'debug', enabled: true });
 
@@ -129,7 +130,7 @@ export async function upCommand(options: {
     }
     
     // Load config
-    const config = await loadConfig(configPath);
+    const config = await loadConfigFromFile(options.testType, configPath);
     
     // Initialize status server (or CI mode)
     await initializeStatusServer(config);
@@ -238,24 +239,6 @@ export async function upCommand(options: {
     await cleanupStatusServer();
     logger.error(chalk.red('❌ Failed to start test environment'));
     logger.error(error);
-    process.exit(1);
-  }
-}
-
-async function loadConfig(configPath: string): Promise<Integr8Config> {
-  try {
-    if (configPath.endsWith('.js')) {
-      const config = require(require('path').resolve(configPath));
-      return config.default || config;
-    } else if (configPath.endsWith('.json')) {
-      const config = require('fs').readFileSync(require('path').resolve(configPath), 'utf8');
-      return JSON.parse(config);
-    } else {
-      logger.error(chalk.red(`❌ Unsupported config file type: ${configPath}`));
-      process.exit(1);
-    }
-  } catch (error: any) {
-    logger.error(chalk.red(`❌ Failed to load config from ${configPath}: ${error.message}`));
     process.exit(1);
   }
 }

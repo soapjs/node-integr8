@@ -1,9 +1,9 @@
 import chalk from 'chalk';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { TestTemplateGenerator } from '../../core/test-template-generator';
 import { RouteInfo, Integr8Config } from '../../types';
-import { createConfig } from '../../utils/config';
+import { loadConfigFromFile } from '../../core/test-globals';
 
 export interface CreateOptions {
   testType: 'api';
@@ -34,22 +34,15 @@ export interface UrlConfig {
 }
 
 export class CreateCommand {
-  private config: Integr8Config;
+  private config!: Integr8Config;
   private baseUrl: string = '';
   private templateGenerator?: TestTemplateGenerator;
-
-  constructor(config?: Integr8Config) {
-    this.config = config || createConfig({});
-  }
 
   async execute(options: CreateOptions): Promise<void> {
     console.log(chalk.blue('Creating test files...'));
     
     try {
-      // Load config if not provided
-      if (!this.config) {
-        this.config = await this.loadConfig(options.config, options.testType);
-      }
+      this.config = await loadConfigFromFile(options.testType, options.config);
 
       // Detect baseUrl from config
       this.baseUrl = this.detectBaseUrl();
@@ -84,21 +77,6 @@ export class CreateCommand {
     }
   }
 
-  private async loadConfig(configPath?: string, testType?: string): Promise<Integr8Config> {
-    const configFile = configPath || testType ? `integr8.${testType}.config.js` : 'integr8.api.config.js';
-    
-    if (existsSync(configFile)) {
-      try {
-        const config = require(resolve(configFile));
-        return config.default || config;
-      } catch (error) {
-        console.log(`⚠️  Could not load config from ${configFile}, using defaults`);
-      }
-    }
-    
-    return createConfig({});
-  }
-
   private detectBaseUrl(): string {
     // Look for app service with http config
     const appService = this.config.services?.find(service => 
@@ -128,7 +106,13 @@ export class CreateCommand {
     return 'http://localhost:3000';
   }
 
-  private normalizeUrlToPath(url: string): string {
+  private normalizeUrlToPath(url: string | undefined): string {
+    // Handle undefined or null
+    if (!url) {
+      console.warn(chalk.yellow('⚠️  URL is undefined, using default path /'));
+      return '/';
+    }
+    
     try {
       // If URL contains the detected baseUrl, extract the path
       if (url.startsWith(this.baseUrl)) {
@@ -154,9 +138,27 @@ export class CreateCommand {
 
     try {
       const content = readFileSync(options.urls!, 'utf8');
-      const urlConfigs: UrlConfig[] = JSON.parse(content);
+      let jsonData = JSON.parse(content);
+      
+      // Normalize JSON structure - handle different formats
+      let urlConfigs: UrlConfig[] = [];
+      
+      if (Array.isArray(jsonData)) {
+        urlConfigs = this.normalizeUrlConfigs(jsonData);
+      } else if (jsonData.routes && Array.isArray(jsonData.routes)) {
+        urlConfigs = this.normalizeUrlConfigs(jsonData.routes);
+      } else if (jsonData.endpoints && Array.isArray(jsonData.endpoints)) {
+        urlConfigs = this.normalizeUrlConfigs(jsonData.endpoints);
+      } else {
+        throw new Error('JSON must be an array or contain "routes" or "endpoints" array property');
+      }
       
       console.log(chalk.blue(`Found ${urlConfigs.length} URLs to process`));
+      
+      // Validate that we have at least one valid config
+      if (urlConfigs.length === 0) {
+        throw new Error('No valid URL configurations found in JSON file');
+      }
       
       // Group URLs by resource to merge tests for the same resource
       const groupedConfigs = this.groupUrlsByResource(urlConfigs);
@@ -168,6 +170,24 @@ export class CreateCommand {
     } catch (error) {
       throw new Error(`Failed to parse JSON file: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  
+  private normalizeUrlConfigs(items: any[]): UrlConfig[] {
+    return items.map(item => {
+      // Handle different possible structures
+      return {
+        url: item.url || item.path || item.endpoint || '',
+        method: item.method || item.verb || item.httpMethod || 'GET',
+        resource: item.resource || item.name || undefined,
+        endpoint: item.endpoint || undefined,
+        body: item.body || item.requestBody || item.data || undefined,
+        queryParams: item.queryParams || item.query || undefined,
+        pathParams: item.pathParams || item.params || undefined,
+        expectedStatus: item.expectedStatus || item.status || undefined,
+        expectedResponse: item.expectedResponse || item.response || undefined,
+        description: item.description || undefined
+      };
+    }).filter(config => config.url && config.url.length > 0); // Filter out invalid entries
   }
 
   private async createFromSingleUrl(options: CreateOptions): Promise<void> {
@@ -367,7 +387,7 @@ export class CreateCommand {
     // Clean up the resource name
     resourceName = resourceName.replace(/[^a-zA-Z0-9]/g, '');
     
-    return resourceName || 'endpoint';
+    return resourceName || '';
   }
 
   private async createMergedTestFile(urlConfigs: UrlConfig[], options: CreateOptions, resourceKey: string | null): Promise<void> {
@@ -379,7 +399,9 @@ export class CreateCommand {
     
     // Generate filename based on resource only (not method)
     const endpointName = firstConfig.resource || this.extractResourceName(path);
-    const fileName = `${endpointName}.api.test.ts`;
+    const type = options.testType || 'api';
+
+    const fileName = `${endpointName}.${type}.test.ts`;
     const filePath = join(options.testDir, fileName);
     
     // Check if file already exists
@@ -480,6 +502,26 @@ export class CreateCommand {
       return `${importsSection}\n\n${setupTeardown}\n\n${newTestBlocks.join('\n\n')}\n`;
     }
     
+    // Filter out test blocks that already exist in the file
+    const blocksToAdd: string[] = [];
+    
+    for (const block of newTestBlocks) {
+      const describeTitle = this.extractDescribeTitle(block);
+      
+      if (describeTitle && this.describeExists(existingContent, describeTitle)) {
+        console.log(chalk.yellow(`   Skipping existing test: ${describeTitle}`));
+        continue;
+      }
+      
+      blocksToAdd.push(block);
+    }
+    
+    // If no new blocks to add, return existing content unchanged
+    if (blocksToAdd.length === 0) {
+      console.log(chalk.gray(`  No new tests to add`));
+      return existingContent;
+    }
+    
     // Parse existing content and merge
     const lines = existingContent.split('\n');
     const importsEndIndex = this.findImportsEndIndex(lines);
@@ -487,14 +529,28 @@ export class CreateCommand {
     
     if (importsEndIndex === -1 || describeBlocksStartIndex === -1) {
       // Fallback: append new blocks at the end
-      return `${existingContent}\n\n${newTestBlocks.join('\n\n')}\n`;
+      return `${existingContent}\n\n${blocksToAdd.join('\n\n')}\n`;
     }
     
     // Merge: keep existing imports and setup/teardown, add new describe blocks
     const beforeDescribe = lines.slice(0, describeBlocksStartIndex).join('\n');
     const afterDescribe = lines.slice(describeBlocksStartIndex).join('\n');
     
-    return `${beforeDescribe}\n\n${newTestBlocks.join('\n\n')}\n\n${afterDescribe}`;
+    return `${beforeDescribe}\n\n${blocksToAdd.join('\n\n')}\n\n${afterDescribe}`;
+  }
+
+  private extractDescribeTitle(describeBlock: string): string | null {
+    // Extract the title from describe('title', () => { ... })
+    const match = describeBlock.match(/describe\s*\(\s*['"`]([^'"`]+)['"`]/);
+    return match ? match[1] : null;
+  }
+
+  private describeExists(content: string, describeTitle: string): boolean {
+    // Check if a describe block with this title already exists
+    // Match: describe('GET /users', ...
+    const escapedTitle = describeTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`describe\\s*\\(\\s*['"\`]${escapedTitle}['"\`]`, 'i');
+    return pattern.test(content);
   }
 
   private generateImports(): Record<string, string[]> {

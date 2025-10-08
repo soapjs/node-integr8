@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, extname } from 'path';
-import { DecoratorScanningConfig, ExtendedRouteInfo } from '../types';
+import { ScanConfig, ExtendedRouteInfo } from '../types';
 import { ModuleMapper } from './module-mapper';
 import { RouteResolver } from './route-resolver';
 import { RouterParser } from './router-parser';
@@ -15,13 +15,15 @@ export interface DecoratorRouteInfo extends ExtendedRouteInfo {
   moduleName?: string;
 }
 
+export type DecoratorScanConfig = NonNullable<ScanConfig['decorators']>;
+
 export class DecoratorScanner {
-  private config: DecoratorScanningConfig;
+  private config: DecoratorScanConfig;
   private moduleMapper: ModuleMapper;
   private routeResolver: RouteResolver;
   private routerParser: RouterParser;
 
-  constructor(config: DecoratorScanningConfig) {
+  constructor(config: DecoratorScanConfig) {
     this.config = config;
     this.moduleMapper = new ModuleMapper();
     this.routeResolver = new RouteResolver(this.moduleMapper);
@@ -118,7 +120,21 @@ export class DecoratorScanner {
     const files: string[] = [];
 
     for (const path of paths) {
-      this.collectFiles(path, files, exclude);
+      try {
+        const stat = statSync(path);
+        
+        if (stat.isFile()) {
+          // It's a file, add it directly if it's a .ts file and not excluded
+          if (extname(path) === '.ts' && !this.shouldExclude(path, exclude)) {
+            files.push(path);
+          }
+        } else if (stat.isDirectory()) {
+          // It's a directory, scan it recursively
+          this.collectFiles(path, files, exclude);
+        }
+      } catch (error) {
+        console.warn(`Could not access path: ${path}`);
+      }
     }
 
     return files;

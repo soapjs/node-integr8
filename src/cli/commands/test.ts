@@ -6,6 +6,7 @@ import { Integr8Config } from '../../types';
 import { jestConfigGenerator } from '../../utils/jest-config-generator';
 import { Logger } from '../../utils/logger';
 import { StatusClient, EnvironmentStatus } from '../../utils/status-server';
+import { loadConfigFromFile } from '../../core/test-globals';
 
 const logger = new Logger({ level: 'debug', enabled: true });
 
@@ -91,7 +92,7 @@ export async function testCommand(
   logger.log(chalk.blue('Loading configuration...'));
 
   try {
-    let config: Integr8Config = await loadConfig(options.config);
+    let config: Integr8Config = await loadConfigFromFile(options.testType, options.config);
 
     if (!config.testDir) {
       logger.error(chalk.red('❌ No test directory specified in configuration'));
@@ -250,24 +251,6 @@ export async function testCommand(
   } catch (error: any) {
     logger.error(chalk.red('❌ Failed to run tests'));
     logger.error(chalk.red(`Error: ${error.message}`));
-    process.exit(1);
-  }
-}
-
-async function loadConfig(configPath: string): Promise<Integr8Config> {
-  try {
-    if (configPath.endsWith('.js')) {
-      const config = require(require('path').resolve(configPath));
-      return config.default || config;
-    } else if (configPath.endsWith('.json')) {
-      const config = require('fs').readFileSync(require('path').resolve(configPath), 'utf8');
-      return JSON.parse(config);
-    } else {
-      logger.error(chalk.red(`❌ Unsupported config file type: ${configPath}`));
-      process.exit(1);
-    }
-  } catch (error: any) {
-    logger.error(chalk.red(`❌ Failed to load config from ${configPath}: ${error.message}`));
     process.exit(1);
   }
 }

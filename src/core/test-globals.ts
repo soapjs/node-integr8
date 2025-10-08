@@ -4,7 +4,7 @@ import { EnvironmentContext } from './environment-context';
 import { Logger } from '../utils/logger';
 import { StatusClient, EnvironmentStatus } from '../utils/status-server';
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 // Global state for test environment
 let orchestrator: EnvironmentOrchestrator | null = null;
@@ -12,14 +12,37 @@ let context: EnvironmentContext | null = null;
 let config: Integr8Config | null = null;
 let logger: Logger | null = null;
 let usingExistingEnvironment = false;
+let hooksRegistered = false;
 
 // File-based environment ready flag for cross-process communication
 const ENVIRONMENT_READY_FLAG_FILE = join(process.cwd(), '.integr8-environment-ready');
 
+export function loadFile(configPath: string) {
+  try{
+  if (configPath.endsWith('.js')) {
+    const config = require(require('path').resolve(configPath));
+    return config.default || config;
+  } else if (configPath.endsWith('.json')) {
+    const content = readFileSync(configPath, 'utf8');
+    return JSON.parse(content);
+  }
+  } catch (error) {
+    console.error(`Failed to load file ${configPath}: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
 /**
  * Loads configuration from file system
  */
-async function loadConfigFromFile(): Promise<Integr8Config> {
+export async function loadConfigFromFile(type?: string, configPath?: string): Promise<Integr8Config> {
+
+  if(configPath) {
+    const fullPath = join(process.cwd(), configPath);
+    if (existsSync(fullPath)) {
+      return loadFile(fullPath);
+    }
+  }
+
   const possibleConfigFiles = [
     'integr8.api.config.json',
     'integr8.api.config.js',
@@ -27,23 +50,20 @@ async function loadConfigFromFile(): Promise<Integr8Config> {
     'integr8.config.js'
   ];
 
-  for (const configFile of possibleConfigFiles) {
-    try {
-      const configPath = join(process.cwd(), configFile);
-      if (configPath.endsWith('.js')) {
-        const config = require(require('path').resolve(configPath));
-        return config.default || config;
-      } else if (configPath.endsWith('.json')) {
-        const content = readFileSync(configPath, 'utf8');
-        return JSON.parse(content);
-      }
-    } catch (error) {
-      // Continue to next config file
-      continue;
-    }
+  if(typeof type === 'string' && type !== 'api') {
+    possibleConfigFiles.push(`integr8.${type}.config.js`);
+    possibleConfigFiles.push(`integr8.${type}.config.json`);
   }
 
-  throw new Error('No integr8 configuration file found. Please run "integr8 init" first.');
+  for (const configFile of possibleConfigFiles) {
+      const fullConfigPath = join(process.cwd(), configFile);
+      if (existsSync(fullConfigPath)) {
+        return loadFile(fullConfigPath);
+      }
+    }
+
+  console.error('No integr8 configuration file found. Please run "integr8 init" first.');
+  process.exit(1);
 }
 
 /**
@@ -173,6 +193,9 @@ export async function setupEnvironment(testConfig?: Integr8Config): Promise<void
       logger.debug('New test environment created and started');
     }
 
+    // Setup automatic seeding hooks based on strategy
+    setupAutomaticSeedingHooks();
+
     logger.debug('Test environment setup complete');
   } catch (error) {
     logger?.error('Failed to setup test environment:', error);
@@ -198,6 +221,7 @@ export async function teardownEnvironment(): Promise<void> {
     context = null;
     config = null;
     usingExistingEnvironment = false;
+    hooksRegistered = false;
     logger?.debug('Test environment teardown complete');
     logger = null;
   } catch (error) {
@@ -267,10 +291,14 @@ export function isUsingExistingEnvironment(): boolean {
 
 /**
  * Seeds the database for a specific test file.
- * This should be called in beforeAll() hooks for each test file.
+ * 
+ * **NOTE**: In most cases, you don't need to call this function manually!
+ * The framework automatically handles seeding based on your configured strategy.
+ * This function is available for advanced use cases where you need manual control.
  * 
  * @param fileName - The name of the test file
  * @param databaseName - Optional specific database name to seed
+ * @deprecated Consider using automatic seeding instead by just calling setupEnvironment()
  */
 export async function seedForFile(fileName: string, databaseName?: string): Promise<void> {
   if (!context) {
@@ -281,11 +309,15 @@ export async function seedForFile(fileName: string, databaseName?: string): Prom
 
 /**
  * Seeds the database for a specific test.
- * This should be called in beforeEach() hooks for individual tests.
+ * 
+ * **NOTE**: In most cases, you don't need to call this function manually!
+ * The framework automatically handles seeding based on your configured strategy.
+ * This function is available for advanced use cases where you need manual control.
  * 
  * @param testName - The name of the test
  * @param filePath - The path to the test file
  * @param databaseName - Optional specific database name to seed
+ * @deprecated Consider using automatic seeding instead by just calling setupEnvironment()
  */
 export async function seedForTest(testName: string, filePath: string, databaseName?: string): Promise<void> {
   if (!context) {
@@ -296,10 +328,14 @@ export async function seedForTest(testName: string, filePath: string, databaseNa
 
 /**
  * Restores the database state after a test file.
- * This should be called in afterAll() hooks for each test file.
+ * 
+ * **NOTE**: In most cases, you don't need to call this function manually!
+ * The framework automatically handles restoration based on your configured strategy.
+ * This function is available for advanced use cases where you need manual control.
  * 
  * @param fileName - The name of the test file
  * @param databaseName - Optional specific database name to restore
+ * @deprecated Consider using automatic restoration instead by just calling setupEnvironment()
  */
 export async function restoreAfterFile(fileName: string, databaseName?: string): Promise<void> {
   if (!context) {
@@ -310,15 +346,159 @@ export async function restoreAfterFile(fileName: string, databaseName?: string):
 
 /**
  * Restores the database state after a test.
- * This should be called in afterEach() hooks for individual tests.
+ * 
+ * **NOTE**: In most cases, you don't need to call this function manually!
+ * The framework automatically handles restoration based on your configured strategy.
+ * This function is available for advanced use cases where you need manual control.
  * 
  * @param testName - The name of the test
  * @param filePath - The path to the test file
  * @param databaseName - Optional specific database name to restore
+ * @deprecated Consider using automatic restoration instead by just calling setupEnvironment()
  */
 export async function restoreAfterTest(testName: string, filePath: string, databaseName?: string): Promise<void> {
   if (!context) {
     throw new Error('Environment context not available. Make sure to call setupEnvironment() before running tests.');
   }
   await context.restoreAfterTest(testName, filePath, databaseName);
+}
+
+/**
+ * Sets up automatic seeding hooks based on the configured strategies.
+ * This function is called internally by setupEnvironment() and should not be called directly.
+ * 
+ * The hooks are registered globally and will automatically handle seeding/restoration based on:
+ * - 'once': Seeds once at the beginning, no per-file or per-test seeding
+ * - 'per-file': Seeds once per test file
+ * - 'per-test': Seeds before each individual test
+ */
+function setupAutomaticSeedingHooks(): void {
+  if (hooksRegistered) {
+    logger?.debug('Seeding hooks already registered, skipping');
+    return;
+  }
+
+  if (!config) {
+    logger?.debug('No config available, skipping hook registration');
+    return;
+  }
+
+  // Check if any database has seeding configured
+  const databasesWithSeeding = (config.databases || []).filter(db => db.seed);
+  
+  if (databasesWithSeeding.length === 0) {
+    logger?.debug('No databases with seeding configured, skipping hook registration');
+    return;
+  }
+
+  logger?.debug('Registering automatic seeding hooks');
+
+  // Determine the seeding strategies in use
+  const strategies = new Set(databasesWithSeeding.map(db => db.seed?.strategy || 'per-file'));
+
+  // Track current test file for per-file strategy
+  let currentTestFile: string | undefined;
+
+  // Register hooks based on strategies
+  if (strategies.has('per-file') || strategies.has('once')) {
+    // For 'per-file' and 'once' strategies, seed at file level
+    beforeAll(async () => {
+      try {
+        // Get current test file path from Jest's expect.getState() or use a fallback
+        const testPath = getTestFilePath();
+        if (testPath) {
+          currentTestFile = testPath;
+          logger?.debug(`Auto-seeding for file: ${testPath}`);
+          await context?.seedForFile(testPath);
+        }
+      } catch (error) {
+        logger?.error('Error in automatic beforeAll seeding:', error);
+        throw error;
+      }
+    });
+
+    afterAll(async () => {
+      try {
+        if (currentTestFile) {
+          logger?.debug(`Auto-restoring after file: ${currentTestFile}`);
+          await context?.restoreAfterFile(currentTestFile);
+        }
+      } catch (error) {
+        logger?.error('Error in automatic afterAll restoration:', error);
+        throw error;
+      }
+    });
+  }
+
+  if (strategies.has('per-test')) {
+    // For 'per-test' strategy, seed before each test
+    beforeEach(async () => {
+      try {
+        const testPath = getTestFilePath();
+        const testName = getCurrentTestName();
+        
+        if (testPath && testName) {
+          logger?.debug(`Auto-seeding for test: ${testName} in ${testPath}`);
+          await context?.seedForTest(testName, testPath);
+        }
+      } catch (error) {
+        logger?.error('Error in automatic beforeEach seeding:', error);
+        throw error;
+      }
+    });
+
+    afterEach(async () => {
+      try {
+        const testPath = getTestFilePath();
+        const testName = getCurrentTestName();
+        
+        if (testPath && testName) {
+          logger?.debug(`Auto-restoring after test: ${testName} in ${testPath}`);
+          await context?.restoreAfterTest(testName, testPath);
+        }
+      } catch (error) {
+        logger?.error('Error in automatic afterEach restoration:', error);
+        throw error;
+      }
+    });
+  }
+
+  hooksRegistered = true;
+  logger?.debug(`Automatic seeding hooks registered for strategies: ${Array.from(strategies).join(', ')}`);
+}
+
+/**
+ * Gets the current test file path from Jest's state.
+ * This is used internally by automatic seeding hooks.
+ */
+function getTestFilePath(): string | undefined {
+  try {
+    // Try to get from Jest's expect.getState()
+    if (typeof expect !== 'undefined' && (expect as any).getState) {
+      const state = (expect as any).getState();
+      return state.testPath;
+    }
+  } catch (error) {
+    logger?.debug('Could not get test path from Jest state:', error);
+  }
+  
+  return undefined;
+}
+
+/**
+ * Gets the current test name from Jest's state.
+ * This is used internally by automatic seeding hooks.
+ */
+function getCurrentTestName(): string | undefined {
+  try {
+    // Try to get from Jest's expect.getState()
+    if (typeof expect !== 'undefined' && (expect as any).getState) {
+      const state = (expect as any).getState();
+      return state.currentTestName;
+    }
+  } catch (error) {
+    logger?.debug('Could not get test name from Jest state:', error);
+  }
+  
+  return undefined;
 }

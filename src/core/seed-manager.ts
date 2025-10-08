@@ -35,7 +35,7 @@ export class SeedManager {
           await this.executeSeedingStrategy('file', fileName);
           this.hasSeededOnce = true;
         } else {
-          console.log(`⏭️  Skipping 'once' strategy for file: ${fileName} (already seeded)`);
+          console.log(` Skipping 'once' strategy for file: ${fileName} (already seeded)`);
         }
         break;
         
@@ -45,12 +45,12 @@ export class SeedManager {
           await this.executeSeedingStrategy('file', fileName);
           this.seededFiles.add(fileName);
         } else {
-          console.log(`⏭️  Skipping 'per-file' strategy for file: ${fileName} (already seeded)`);
+          console.log(` Skipping 'per-file' strategy for file: ${fileName} (already seeded)`);
         }
         break;
         
       case 'per-test':
-        console.log(`⏭️  Skipping 'per-test' strategy for file: ${fileName} (handled in seedForTest)`);
+        console.log(` Skipping 'per-test' strategy for file: ${fileName} (handled in seedForTest)`);
         break;
     }
   }
@@ -62,11 +62,11 @@ export class SeedManager {
     
     switch (strategy) {
       case 'once':
-        console.log(`⏭️  Skipping 'once' strategy for test: ${testName} (already handled at file level)`);
+        console.log(` Skipping 'once' strategy for test: ${testName} (already handled at file level)`);
         break;
         
       case 'per-file':
-        console.log(`⏭️  Skipping 'per-file' strategy for test: ${testName} (already handled at file level)`);
+        console.log(` Skipping 'per-file' strategy for test: ${testName} (already handled at file level)`);
         break;
         
       case 'per-test':
@@ -76,7 +76,7 @@ export class SeedManager {
           await this.executeSeedingStrategy('test', testName, filePath);
           this.seededTests.add(testKey);
         } else {
-          console.log(`⏭️  Skipping 'per-test' strategy for test: ${testName} (already seeded)`);
+          console.log(` Skipping 'per-test' strategy for test: ${testName} (already seeded)`);
         }
         break;
     }

@@ -11,8 +11,52 @@ if (majorVersion < 18) {
   throw new Error(`Node.js 18+ is required. Current version: ${nodeVersion}`);
 }
 
-// Helper function to find config file
-function findConfigFile(testType?: string): string {
+/**
+ * Find config file with the following priority:
+ * 1. Explicit --config flag (handled by caller)
+ * 2. .integr8rc file
+ * 3. package.json "integr8.config" field
+ * 4. Auto-detect by testType
+ * 5. Fallback to common names
+ */
+function findConfigFile(testType?: string, explicitPath?: string): string | null {
+  // 1. Explicit path takes highest priority
+  if (explicitPath) {
+    if (!existsSync(explicitPath)) {
+      throw new Error(`Config file not found: ${explicitPath}`);
+    }
+    return explicitPath;
+  }
+  
+  // 2. Check .integr8rc
+  if (existsSync('.integr8rc')) {
+    try {
+      const rcContent = readFileSync('.integr8rc', 'utf8');
+      const rc = JSON.parse(rcContent);
+      if (rc.defaultConfig && existsSync(rc.defaultConfig)) {
+        console.log(`Using config from .integr8rc: ${rc.defaultConfig}`);
+        return rc.defaultConfig;
+      }
+    } catch (error) {
+      console.warn('⚠️  Failed to parse .integr8rc, ignoring');
+    }
+  }
+  
+  // 3. Check package.json
+  if (existsSync('package.json')) {
+    try {
+      const pkgContent = readFileSync('package.json', 'utf8');
+      const pkg = JSON.parse(pkgContent);
+      if (pkg.integr8?.config && existsSync(pkg.integr8.config)) {
+        console.log(`Using config from package.json: ${pkg.integr8.config}`);
+        return pkg.integr8.config;
+      }
+    } catch (error) {
+      console.warn('⚠️  Failed to parse package.json, ignoring');
+    }
+  }
+  
+  // 4. Auto-detect by testType
   const testTypes = testType ? [testType] : ['api', 'e2e', 'integration'];
   const extensions = ['js', 'json'];
   
@@ -20,20 +64,14 @@ function findConfigFile(testType?: string): string {
     for (const ext of extensions) {
       const filename = `integr8.${type}.config.${ext}`;
       if (existsSync(filename)) {
+        console.log(`Auto-detected config: ${filename}`);
         return filename;
       }
     }
   }
   
-  // Fallback to legacy format
-  for (const ext of extensions) {
-    const filename = `integr8.config.${ext}`;
-    if (existsSync(filename)) {
-      return filename;
-    }
-  }
-  
-  return 'integr8.api.config.js'; // Default
+  // No config found
+  return null;
 }
 
 const program = new Command();
@@ -62,13 +100,20 @@ program
 program
   .command('up')
   .description('Start the test environment')
-  .option('-c, --config <path>', 'Path to integr8 config file', findConfigFile())
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
   .option('--test-type <type>', 'Test type to auto-detect config (api, e2e, integration, custom)')
   .option('-d, --detach', 'Run in detached mode')
   .option('--compose-file <path>', 'Custom Docker Compose file (overrides config)')
   .option('--local <services...>', 'Override specified services to local mode')
   .option('--fast', 'Skip health checks for faster startup')
   .action(async (options) => {
+    const configFile = findConfigFile(options.testType, options.config);
+    if (!configFile) {
+      console.error('❌ No integr8 config file found. Run: npx integr8 init');
+      process.exit(1);
+    }
+    options.config = configFile;
+    
     const { upCommand } = await import('./commands/up');
     await upCommand(options);
   });
@@ -76,9 +121,16 @@ program
 program
   .command('down')
   .description('Stop the test environment')
-  .option('-c, --config <path>', 'Path to integr8 config file', findConfigFile())
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
   .option('--test-type <type>', 'Test type to auto-detect config (api, e2e, integration, custom)')
   .action(async (options) => {
+    const configFile = findConfigFile(options.testType, options.config);
+    if (!configFile) {
+      console.error('❌ No integr8 config file found. Run: npx integr8 init');
+      process.exit(1);
+    }
+    options.config = configFile;
+    
     const { downCommand } = await import('./commands/down');
     await downCommand(options);
   });
@@ -86,11 +138,18 @@ program
 program
   .command('test')
   .description('Run integration tests')
-  .option('-c, --config <path>', 'Path to integr8 config file', findConfigFile())
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
   .option('--test-type <type>', 'Test type to auto-detect config (api, e2e, integration, custom)')
   .option('-p, --pattern <pattern>', 'Test pattern to run')
   .option('-w, --watch', 'Watch mode')
   .action(async (options) => {
+    const configFile = findConfigFile(options.testType, options.config);
+    if (!configFile) {
+      console.error('❌ No integr8 config file found. Run: npx integr8 init');
+      process.exit(1);
+    }
+    options.config = configFile;
+    
     const { testCommand: runCommand } = await import('./commands/test');
     await runCommand(options);
   });
@@ -98,13 +157,20 @@ program
 program
   .command('ci')
   .description('Run integration tests in CI mode (up + test + down)')
-  .option('-c, --config <path>', 'Path to integr8 config file', findConfigFile())
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
   .option('--test-type <type>', 'Test type to auto-detect config (api, e2e, integration, custom)')
   .option('-p, --pattern <pattern>', 'Test pattern to run')
   .option('-t, --timeout <ms>', 'Total timeout for CI run', '600000')
   .option('--verbose', 'Verbose output')
   .option('--no-cleanup', 'Skip cleanup (for debugging)')
   .action(async (options) => {
+    const configFile = findConfigFile(options.testType, options.config);
+    if (!configFile) {
+      console.error('❌ No integr8 config file found. Run: npx integr8 init');
+      process.exit(1);
+    }
+    options.config = configFile;
+    
     const { ciCommand } = await import('./commands/ci');
     await ciCommand(options);
   });
@@ -115,18 +181,56 @@ program
   .command('scan')
   .description('Scan service endpoints and generate tests')
   .option('--command <cmd>', 'Command to run for endpoint discovery (e.g., "npm run list-routes")')
+  .option('--decorators', 'Scan decorators instead of using discovery command')
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
+  .option('--test-type <type>', 'Test type to auto-detect config (api, e2e, integration, custom)')
   .option('--json <path>', 'Path to JSON file with endpoints')
+  .option('--format <format>', 'Output format: json, yaml', 'json')
   .option('--type <type>', 'Scan type: all, only-new', 'all')
   .option('--output <dir>', 'Output directory for tests')
-  .option('--config <path>', 'Path to integr8 config file')
-  .option('--format <format>', 'Output format: json, yaml', 'json')
   .option('--timeout <ms>', 'Timeout for command execution in milliseconds', '10000')
-  .option('--decorators', 'Scan decorators instead of using discovery command')
   .option('--generate-tests', 'Generate test files for discovered endpoints')
+  .option('--file <path>', 'Scan specific file (only with --decorators)')
+  .option('--dir <path>', 'Scan specific directory (only with --decorators)')
   .action(async (options) => {
+    // Config is optional for scan - some options don't need it
+    if (options.config || options.testType || (!options.command && !options.json)) {
+      const configFile = findConfigFile(options.testType, options.config);
+      if (!configFile) {
+        console.error('❌ No integr8 config file found. Run: npx integr8 init');
+        process.exit(1);
+      }
+      options.config = configFile;
+    }
+    
     const { ScanCommand } = await import('./commands/scan');
     const scanCommand = new ScanCommand();
     await scanCommand.execute(options);
+  });
+
+program
+  .command('coverage')
+  .description('Analyze endpoint test coverage')
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
+  .option('--test-type <type>', 'Test type to auto-detect config (api, e2e, integration)', 'api')
+  .option('--threshold <number>', 'Coverage threshold percentage (overrides config)')
+  .option('--output <path>', 'Output path for JSON report (overrides config)')
+  .action(async (options) => {
+    const configFile = findConfigFile(options.testType, options.config);
+    if (!configFile) {
+      console.error('❌ No integr8 config file found. Run: npx integr8 init');
+      process.exit(1);
+    }
+    options.config = configFile;
+    
+    // Parse threshold as number if provided
+    if (options.threshold) {
+      options.threshold = parseFloat(options.threshold);
+    }
+    
+    const { CoverageCommand } = await import('./commands/coverage');
+    const coverageCommand = new CoverageCommand();
+    await coverageCommand.execute(options);
   });
 
 // Add cleanup command with lazy loading
@@ -149,8 +253,16 @@ program
   .option('--path-params <json>', 'Path parameters as JSON string')
   .option('--expected-status <number>', 'Expected HTTP status code')
   .option('--expected-response <json>', 'Expected response as JSON string')
-  .option('--config <path>', 'Path to integr8 config file')
+  .option('-c, --config <path>', 'Path to integr8 config file (optional, auto-detected)')
   .action(async (options) => {
+    // Config is optional for create - it's used for defaults but not required
+    const configFile = findConfigFile(options.testType, options.config);
+    if (!configFile) {
+      console.error('❌ No integr8 config file found. Run: npx integr8 init');
+      process.exit(1);
+    }
+    options.config = configFile;
+    
     const { CreateCommand } = await import('./commands/create');
     const createCommand = new CreateCommand();
     await createCommand.execute(options);

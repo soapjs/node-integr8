@@ -1,11 +1,10 @@
-import { Command } from 'commander';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { execSync } from 'child_process';
-import { TestTemplateGenerator } from '../../core/test-template-generator';
+import chalk from 'chalk';
 import { DecoratorScanner } from '../../core/decorator-scanner';
 import { RouteInfo, Integr8Config } from '../../types';
-import { createConfig } from '../../utils/config';
+import { loadConfigFromFile } from '../../core/test-globals';
 
 export interface ScanOptions {
   command?: string;
@@ -17,6 +16,8 @@ export interface ScanOptions {
   timeout?: number;
   decorators?: boolean;
   generateTests?: boolean;
+  file?: string;
+  dir?: string;
 }
 
 export interface ExtendedRouteInfo extends RouteInfo {
@@ -42,18 +43,19 @@ export interface TestScenario {
 }
 
 export class ScanCommand {
-  private config: Integr8Config;
-
-  constructor(config?: Integr8Config) {
-    this.config = config || createConfig({});
-  }
+  private config!: Integr8Config;
 
   async execute(options: ScanOptions): Promise<void> {
     console.log('Starting endpoint scan...');
     
     try {
+      // Validate --file and --dir options
+      if ((options.file || options.dir) && !options.decorators) {
+        throw new Error('--file and --dir options can only be used with --decorators flag');
+      }
+
       // Always load config from file (override default config)
-      this.config = await this.loadConfig(options.config);
+      this.config = await loadConfigFromFile(options.type, options.config);
 
       // 1. Discovery
       let routes: ExtendedRouteInfo[] = [];
@@ -76,7 +78,7 @@ export class ScanCommand {
       console.log(`${options.type === 'only-new' ? 'New' : 'All'} endpoints: ${filteredRoutes.length}`);
       
 
-      const outputPath = options.output || this.config.scanning?.output || 'endpoints.json';
+      const outputPath = options.output || this.config.scan?.output || 'endpoints.json';
       // 3. Output results
       if (outputPath) {
         await this.saveResults(filteredRoutes, outputPath, options);
@@ -90,25 +92,30 @@ export class ScanCommand {
         console.log('✅ Scan completed! Use --generate-tests to create test files.');
       }
       
+      // 5. Show coverage if configured
+      if (this.config.coverage) {
+        console.log('\n');
+        await this.showCoverage(options);
+      }
+      
     } catch (error) {
       console.error('❌ Scan failed:', error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
   }
 
-  private async loadConfig(configPath?: string): Promise<Integr8Config> {
-    const configFile = configPath || 'integr8.config.js';
-    
-    if (existsSync(configFile)) {
-      try {
-        const config = require(resolve(configFile));
-        return config.default || config;
-      } catch (error) {
-        console.log(`⚠️  Could not load config from ${configFile}, using defaults`);
-      }
+  private async showCoverage(options: ScanOptions): Promise<void> {
+    try {
+      const { CoverageCommand } = await import('./coverage');
+      const coverageCommand = new CoverageCommand();
+      
+      await coverageCommand.execute({
+        config: options.config,
+        type: 'api'
+      });
+    } catch (error) {
+      console.warn('⚠️  Could not generate coverage report:', error instanceof Error ? error.message : String(error));
     }
-    
-    return createConfig({});
   }
 
   private async discoverRoutes(options: ScanOptions): Promise<ExtendedRouteInfo[]> {
@@ -116,19 +123,18 @@ export class ScanCommand {
       return await this.discoverFromCommand(options.command, options.timeout);
     } else if (options.json) {
       return await this.discoverFromFile(options.json);
-    } else if (this.config.endpointDiscovery?.command) {
-      // Use config command if no explicit command provided
+    } else if (this.config.scan?.discovery?.command) {
       return await this.discoverFromCommand(
-        this.config.endpointDiscovery.command, 
-        options.timeout || Number(this.config.endpointDiscovery.timeout)
+        this.config.scan.discovery.command, 
+        options.timeout || Number(this.config.scan.discovery.timeout)
       );
     } else {
-      throw new Error('Either --command, --json must be provided, or endpointDiscovery.command must be configured');
+      throw new Error('Either --command, --json must be provided, or scan.discovery.command must be configured in integr8.config.js');
     }
   }
 
   private async discoverFromCommand(command: string, timeout?: number): Promise<ExtendedRouteInfo[]> {
-    console.log(`🚀 Running command: ${command}`);
+    console.log(chalk.blue(`Running command: ${chalk.bold(command)}`));
     
     try {
       const output = execSync(command, { 
@@ -147,7 +153,7 @@ export class ScanCommand {
   }
 
   private async discoverFromFile(filePath: string): Promise<ExtendedRouteInfo[]> {
-    console.log(`📄 Reading from file: ${filePath}`);
+    console.log(chalk.cyan(`Reading from file: ${chalk.bold(filePath)}`));
     
     if (!existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
@@ -217,8 +223,7 @@ export class ScanCommand {
       return routes;
     }
     
-    const configPath = options.config || 'integr8.config.js';
-    const outputDir = await this.getOutputDirectory(options, configPath);
+    const outputDir = options.output || this.config.testDir || './integr8/tests';
     const existingFiles = new Set<string>();
     
     // Scan existing test files
@@ -245,47 +250,26 @@ export class ScanCommand {
 
   private async generateTests(routes: ExtendedRouteInfo[], options: ScanOptions): Promise<void> {
     if (routes.length === 0) {
-      console.log('No new endpoints to generate tests for');
+      console.log(chalk.gray('No new endpoints to generate tests for'));
       return;
     }
     
     const configPath = options.config || 'integr8.config.js';
-    const outputDir = await this.getOutputDirectory(options, configPath);
+    const outputDir = options.output || this.config.testDir || './integr8/tests';
+      
+    // Update options with resolved testDir
+    options.output = outputDir;
     
     // Ensure output directory exists
     if (!existsSync(outputDir)) {
       mkdirSync(outputDir, { recursive: true });
-      console.log(`Created output directory: ${outputDir}`);
+      console.log(chalk.green(`Created output directory: ${chalk.bold(outputDir)}`));
     }
     
     // Generate tests for each route
     for (const route of routes) {
       await this.generateTestForRoute(route, outputDir, configPath);
     }
-  }
-
-  private async getOutputDirectory(options: ScanOptions, configPath: string): Promise<string> {
-    // If output is explicitly provided, use it
-    if (options.output) {
-      return options.output;
-    }
-    
-    // Try to load config and get testDir
-    try {
-      if (existsSync(configPath)) {
-        const config = require(resolve(configPath));
-        const integr8Config = config.default || config;
-        
-        if (integr8Config.testDir) {
-          return integr8Config.testDir;
-        }
-      }
-    } catch (error) {
-      console.log(`⚠️  Could not load config from ${configPath}, using default output directory`);
-    }
-    
-    // Fallback to default
-    return './integr8/tests';
   }
 
   private async generateTestForRoute(route: ExtendedRouteInfo, outputDir: string, configPath: string): Promise<void> {
@@ -298,7 +282,7 @@ export class ScanCommand {
     
     // Skip if file already exists
     if (existsSync(filePath)) {
-      console.log(`⏭️  Skipping existing file: ${fileName}`);
+      console.log(` Skipping existing file: ${fileName}`);
       return;
     }
     
@@ -318,7 +302,7 @@ export class ScanCommand {
     const template = generator.generateSingleEndpointTemplate(enhancedRoute);
     
     writeFileSync(filePath, template.content);
-    console.log(`📝 Generated: ${fileName}`);
+    console.log(chalk.green(`Generated: ${chalk.bold(fileName)}`));
   }
 
   private extractEndpointName(path: string): string {
@@ -423,14 +407,29 @@ export class ScanCommand {
   }
 
   private async scanDecorators(options: ScanOptions): Promise<ExtendedRouteInfo[]> {
-    const decoratorConfig = this.config?.scanning?.decorators;
+    const decoratorConfig = this.config?.scan?.decorators;
     
     if (!decoratorConfig) {
-      console.warn('⚠️ Decorator scanning not configured in integr8.config.js');
+      console.warn('⚠️  Decorator scanning not configured. Add scan.decorators to your config file');
       return [];
     }
 
-    const scanner = new DecoratorScanner(decoratorConfig);
+    // Override paths if --file or --dir options are provided
+    const scanConfig = { ...decoratorConfig };
+    if (options.file || options.dir) {
+      const paths: string[] = [];
+      if (options.file) {
+        paths.push(options.file);
+        console.log(chalk.cyan(`Scanning specific file: ${chalk.bold(options.file)}`));
+      }
+      if (options.dir) {
+        paths.push(options.dir);
+        console.log(chalk.cyan(`Scanning specific directory: ${chalk.bold(options.dir)}`));
+      }
+      scanConfig.paths = paths;
+    }
+
+    const scanner = new DecoratorScanner(scanConfig);
     const decoratorRoutes = await scanner.scanDecorators();
 
     return decoratorRoutes.map(route => ({
@@ -462,7 +461,7 @@ export class ScanCommand {
     }
     
     writeFileSync(outputPath, content, 'utf8');
-    console.log(`Results saved to: ${outputPath}`);
+    console.log(chalk.gray(`Results saved to: ${chalk.bold(outputPath)}`));
   }
 
   private extractResourceName(path: string): string {

@@ -113,28 +113,6 @@ Database strategies solve this by ensuring each test gets its own isolated datab
 
 ---
 
-## Hybrid Strategies
-
-### Hybrid Savepoint-Schema ⚡⚡⚡⚡
-
-**What it does:** Combines savepoints with schema isolation for maximum speed and reliability.
-
-**Best for:** When you need both speed and the ability to test transactions.
-
-### Hybrid Schema-Database ⚡⚡⚡
-
-**What it does:** Uses schemas for most tests but falls back to database isolation for complex scenarios.
-
-**Best for:** Mixed test suites with both simple and complex tests.
-
-### Transactional Schema ⚡⚡⚡⚡
-
-**What it does:** Uses transactions within schemas for additional isolation.
-
-**Best for:** When you need to test transaction rollback scenarios.
-
----
-
 ## How to Choose the Right Strategy
 
 ### For Beginners
@@ -175,63 +153,6 @@ Do you have complex test scenarios?
 
 ## Configuration Examples
 
-### Basic Setup (Recommended for Most Users)
-
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "dbStrategy": "schema"
-    }
-  ]
-}
-```
-
-### High-Performance Setup (Development)
-
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "dbStrategy": "savepoint"
-    }
-  ]
-}
-```
-
-### Maximum Isolation Setup (CI/CD)
-
-```json
-{
-  "services": [
-    {
-      "name": "postgres",
-      "type": "postgres",
-      "dbStrategy": "database"
-    }
-  ]
-}
-```
-
-### MongoDB Setup
-
-```json
-{
-  "services": [
-    {
-      "name": "mongo",
-      "type": "mongo",
-      "dbStrategy": "database"
-    }
-  ]
-}
-```
-
----
 
 ## Performance Comparison
 

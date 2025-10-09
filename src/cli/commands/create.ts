@@ -336,12 +336,15 @@ export class CreateCommand {
   }
 
   private getDefaultStatus(method: string): number {
+    // Returns conventional HTTP status codes for REST APIs
+    // Note: DELETE can return 200 (with body) or 204 (no content) - 204 is used as default
+    // If your API uses different status codes, specify expectedStatus in the URL config
     switch (method.toUpperCase()) {
       case 'GET': return 200;
       case 'POST': return 201;
       case 'PUT': return 200;
       case 'PATCH': return 200;
-      case 'DELETE': return 204;
+      case 'DELETE': return 204; // Some APIs return 200 instead
       default: return 200;
     }
   }

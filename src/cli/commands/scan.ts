@@ -23,6 +23,7 @@ export interface ScanOptions {
 export interface ExtendedRouteInfo extends RouteInfo {
   resource?: string; // Resource name for test file naming (e.g., "users")
   endpoint?: string; // Explicit endpoint name for test file naming (fallback)
+  expectedStatus?: number; // Expected HTTP status code (e.g., from decorators)
   request?: {
     headers?: Record<string, any>;
     query?: Record<string, any>;
@@ -266,26 +267,50 @@ export class ScanCommand {
       console.log(chalk.green(`Created output directory: ${chalk.bold(outputDir)}`));
     }
     
-    // Generate tests for each route
-    for (const route of routes) {
-      await this.generateTestForRoute(route, outputDir, configPath);
+    // Group routes by resource (like create command does)
+    const groupedRoutes = this.groupRoutesByResource(routes);
+    
+    // Generate merged test files for each resource
+    for (const [resourceName, resourceRoutes] of groupedRoutes) {
+      await this.generateMergedTestFile(resourceRoutes, outputDir, configPath);
     }
   }
 
-  private async generateTestForRoute(route: ExtendedRouteInfo, outputDir: string, configPath: string): Promise<void> {
-    const { TestTemplateGenerator } = require('../../core/test-template-generator');
+  private groupRoutesByResource(routes: ExtendedRouteInfo[]): Map<string, ExtendedRouteInfo[]> {
+    const grouped = new Map<string, ExtendedRouteInfo[]>();
     
-    // Priority: resource -> endpoint -> extract from path
-    const endpointName = route.resource || route.endpoint || this.extractEndpointName(route.path);
-    const fileName = `${endpointName}.${route.method.toLowerCase()}.test.ts`;
-    const filePath = join(outputDir, fileName);
-    
-    // Skip if file already exists
-    if (existsSync(filePath)) {
-      console.log(` Skipping existing file: ${fileName}`);
-      return;
+    for (const route of routes) {
+      // Use resource if available, otherwise extract from path
+      const resourceName = route.resource || this.extractResourceName(route.path);
+      
+      if (!grouped.has(resourceName)) {
+        grouped.set(resourceName, []);
+      }
+      grouped.get(resourceName)!.push(route);
     }
     
+    return grouped;
+  }
+
+  private async generateMergedTestFile(routes: ExtendedRouteInfo[], outputDir: string, configPath: string): Promise<void> {
+    if (routes.length === 0) return;
+    
+    const { TestTemplateGenerator } = require('../../core/test-template-generator');
+    
+    // Use resource from first route to determine file naming
+    const firstRoute = routes[0];
+    const resourceName = firstRoute.resource || this.extractResourceName(firstRoute.path);
+    const fileName = `${resourceName}.api.test.ts`;
+    const filePath = join(outputDir, fileName);
+    
+    // Check if file already exists
+    let existingContent = '';
+    if (existsSync(filePath)) {
+      console.log(chalk.yellow(`Merging with existing file: ${fileName}`));
+      existingContent = readFileSync(filePath, 'utf8');
+    }
+    
+    // Create test template generator
     const generator = TestTemplateGenerator.createEndpointGenerator({
       outputDir: outputDir,
       testFramework: 'jest',
@@ -293,16 +318,193 @@ export class ScanCommand {
       includeTeardown: true,
       customImports: ['@soapjs/integr8'],
       configPath: configPath,
-      routesConfig: {} // Empty for individual endpoint tests
+      routesConfig: {}
     });
+    
+    // Generate content for all routes
+    const newTestBlocks: string[] = [];
+    
+    for (const route of routes) {
+      const enhancedRoute = this.enhanceRouteWithScenarios(route);
+      const template = generator.generateSingleEndpointTemplate(enhancedRoute);
+      
+      // Extract just the describe block from the generated content
+      const describeBlock = this.extractDescribeBlock(template.content);
+      if (describeBlock) {
+        newTestBlocks.push(describeBlock);
+      }
+    }
+    
+    // Merge with existing content or create new file
+    const finalContent = this.mergeTestContent(existingContent, newTestBlocks, generator, filePath, configPath);
+    
+    // Write file
+    writeFileSync(filePath, finalContent);
+    console.log(chalk.green(`Created/Updated: ${chalk.bold(fileName)}`));
+  }
 
-    // Enhance route with test scenarios based on response codes
-    const enhancedRoute = this.enhanceRouteWithScenarios(route);
+  private extractDescribeBlock(content: string): string | null {
+    // Extract the describe block from the generated test content
+    const lines = content.split('\n');
+    let describeStartIndex = -1;
+    let braceCount = 0;
     
-    const template = generator.generateSingleEndpointTemplate(enhancedRoute);
+    // Find the start of describe block
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('describe(')) {
+        describeStartIndex = i;
+        break;
+      }
+    }
     
-    writeFileSync(filePath, template.content);
-    console.log(chalk.green(`Generated: ${chalk.bold(fileName)}`));
+    if (describeStartIndex === -1) {
+      return null;
+    }
+    
+    // Count braces to find the end of describe block
+    for (let i = describeStartIndex; i < lines.length; i++) {
+      const line = lines[i];
+      for (const char of line) {
+        if (char === '{') braceCount++;
+        if (char === '}') braceCount--;
+        
+        // When we close the describe block
+        if (braceCount === 0 && i > describeStartIndex) {
+          return lines.slice(describeStartIndex, i + 1).join('\n');
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  private mergeTestContent(existingContent: string, newTestBlocks: string[], generator: any, testFilePath: string, configPath?: string): string {
+    if (!existingContent) {
+      // Create new file with all test blocks
+      const imports = this.generateImports();
+      const importsSection = this.generateImportsSection(imports);
+      
+      // Generate setup/teardown using template
+      const setupTeardown = this.generateSetupTeardownFromTemplate(generator, testFilePath, configPath);
+      
+      return `${importsSection}\n\n${setupTeardown}\n\n${newTestBlocks.join('\n\n')}\n`;
+    }
+    
+    // Filter out test blocks that already exist in the file
+    const blocksToAdd: string[] = [];
+    
+    for (const block of newTestBlocks) {
+      const describeTitle = this.extractDescribeTitle(block);
+      
+      if (describeTitle && this.describeExists(existingContent, describeTitle)) {
+        console.log(chalk.yellow(`   Skipping existing test: ${describeTitle}`));
+        continue;
+      }
+      
+      blocksToAdd.push(block);
+    }
+    
+    // If no new blocks to add, return existing content unchanged
+    if (blocksToAdd.length === 0) {
+      console.log(chalk.gray(`  No new tests to add`));
+      return existingContent;
+    }
+    
+    // Parse existing content and merge
+    const lines = existingContent.split('\n');
+    const importsEndIndex = this.findImportsEndIndex(lines);
+    const describeBlocksStartIndex = this.findDescribeBlocksStartIndex(lines);
+    
+    if (importsEndIndex === -1 || describeBlocksStartIndex === -1) {
+      // Fallback: append new blocks at the end
+      return `${existingContent}\n\n${blocksToAdd.join('\n\n')}\n`;
+    }
+    
+    // Merge: keep existing imports and setup/teardown, add new describe blocks
+    const beforeDescribe = lines.slice(0, describeBlocksStartIndex).join('\n');
+    const afterDescribe = lines.slice(describeBlocksStartIndex).join('\n');
+    
+    return `${beforeDescribe}\n\n${blocksToAdd.join('\n\n')}\n\n${afterDescribe}`;
+  }
+
+  private extractDescribeTitle(describeBlock: string): string | null {
+    // Extract the title from describe('title', () => { ... })
+    const match = describeBlock.match(/describe\s*\(\s*['"`]([^'"`]+)['"`]/);
+    return match ? match[1] : null;
+  }
+
+  private describeExists(content: string, describeTitle: string): boolean {
+    // Check if a describe block with this title already exists
+    const escapedTitle = describeTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`describe\\s*\\(\\s*['"\`]${escapedTitle}['"\`]`, 'i');
+    return pattern.test(content);
+  }
+
+  private generateImports(): Record<string, string[]> {
+    return {
+      '@soapjs/integr8': ['setupEnvironment', 'teardownEnvironment', 'getEnvironmentContext']
+    };
+  }
+
+  private generateImportsSection(imports: Record<string, string[]>): string {
+    const importLines: string[] = [];
+    
+    for (const [module, importsList] of Object.entries(imports)) {
+      importLines.push(`import { ${importsList.join(', ')} } from '${module}';`);
+    }
+    
+    return importLines.join('\n');
+  }
+
+  private generateSetupTeardownFromTemplate(generator: any, testFilePath: string, configPath?: string): string {
+    // Use the setup-teardown template from the generator
+    const templateData = {
+      setup: true,
+      teardown: true,
+      configPath: configPath || 'integr8.config.js',
+      testFilePath: testFilePath
+    };
+    
+    // Access the setup-teardown template from the generator
+    if (generator.setupTeardownTemplate) {
+      return generator.setupTeardownTemplate(templateData);
+    }
+    
+    // Fallback to manual generation if template not available
+    return this.generateSetupTeardownSection();
+  }
+
+  private generateSetupTeardownSection(): string {
+    return `// Global setup
+beforeAll(async () => {
+  const configModule = require('../integr8.config.js');
+  const config = configModule.default || configModule;
+  
+  await setupEnvironment(config);
+});
+
+// Global teardown
+afterAll(async () => {
+  await teardownEnvironment();
+});`;
+  }
+
+  private findImportsEndIndex(lines: string[]): number {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() === '' && i > 0 && lines[i-1].includes('from')) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private findDescribeBlocksStartIndex(lines: string[]): number {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('describe(')) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   private extractEndpointName(path: string): string {
@@ -367,9 +569,11 @@ export class ScanCommand {
     
     // If no response codes defined, add default scenarios
     if (scenarios.length === 0) {
+      // Use expectedStatus from route if available (e.g., from decorators), otherwise use default
+      const expectedStatus = route.expectedStatus || this.getDefaultStatus(route.method);
       scenarios.push({
         description: `should handle ${route.method} request`,
-        expectedStatus: this.getDefaultStatus(route.method),
+        expectedStatus: expectedStatus,
         requestData: route.request?.body,
         queryParams: route.request?.query,
         pathParams: this.generatePathParams(route.path)
@@ -396,12 +600,15 @@ export class ScanCommand {
   }
 
   private getDefaultStatus(method: string): number {
+    // Returns conventional HTTP status codes for REST APIs
+    // Note: DELETE can return 200 (with body) or 204 (no content) - 204 is used as default
+    // If your API uses different status codes, specify them in decorators (@HttpCode) or endpoint config
     switch (method.toUpperCase()) {
       case 'GET': return 200;
       case 'POST': return 201;
       case 'PUT': return 200;
       case 'PATCH': return 200;
-      case 'DELETE': return 204;
+      case 'DELETE': return 204; // Some APIs return 200 instead
       default: return 200;
     }
   }

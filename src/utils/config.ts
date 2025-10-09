@@ -424,17 +424,6 @@ export function createNestJSAdapter(config?: Record<string, any>): AdapterConfig
   };
 }
 
-export function createNestAdapter(config?: Record<string, any>): AdapterConfig {
-  return {
-    type: 'nest',
-    config: {
-      typeorm: true,
-      testModule: true,
-      ...config
-    }
-  };
-}
-
 export function createFastifyAdapter(config?: Record<string, any>): AdapterConfig {
   return {
     type: 'fastify',

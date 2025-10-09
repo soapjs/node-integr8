@@ -22,8 +22,7 @@ npm install @soapjs/integr8-nestjs
 ```typescript
 // app.module.ts
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { createTestMiddleware } from '@soapjs/integr8-nestjs';
-import { NestJSAdapter } from '@soapjs/integr8';
+import { NestJSAdapter, createTestMiddleware } from '@soapjs/integr8-nestjs';
 
 @Module({
   providers: [
@@ -371,8 +370,7 @@ describe('User Tests with different overrides', () => {
 ```typescript
 // app.ts
 import express from 'express';
-import { ExpressAdapter } from '@soapjs/integr8';
-import { createTestMiddleware } from '@soapjs/integr8-express';
+import { ExpressAdapter, createTestMiddleware } from '@soapjs/integr8-express';
 
 const app = express();
 

@@ -21,8 +21,30 @@ Test your APIs against real PostgreSQL, Redis, Kafka, and more - without mocking
 
 ## Installation
 
+### Local Installation (Project-specific)
+
 ```bash
 npm install --save-dev @soapjs/integr8
+```
+
+Use with `npx`:
+```bash
+npx integr8 init
+```
+
+### Global Installation (Recommended)
+
+Install globally to use `integr8` command directly:
+
+```bash
+npm install -g @soapjs/integr8
+```
+
+Then use directly:
+```bash
+integr8 init
+integr8 up
+integr8 test
 ```
 
 ### Framework Adapters (Optional)
@@ -178,11 +200,11 @@ integr8 coverage --threshold 80   # Enforce coverage threshold
 module.exports = {
   testType: "api",
   testDir: "integr8/tests/api",
-  
   services: [
     {
       name: "app",
       mode: "local",
+      framework: "nestjs",
       http: {
         port: 3000,
         prefix: "/api"
@@ -192,24 +214,60 @@ module.exports = {
       }
     }
   ],
-  
   databases: [
     {
-      name: "postgres",
-      type: "postgres",
+      name: "main-db",
+      category: "database",
+      type: "postgresql",
       mode: "container",
       isolation: "savepoint",
+      seeding: {
+        strategy: "once",
+        command: "npm run seed",
+        file: undefined
+      },
+      local: undefined,
       container: {
-        image: "postgres:15",
-        ports: [{ host: 5432, container: 5432 }],
+        image: "postgres:15-alpine",
+        containerName: "test-db",
+        ports: [
+          {
+            host: 5432,
+            container: 5432
+          }
+        ],
         environment: {
-          POSTGRES_DB: "testdb",
-          POSTGRES_USER: "test",
-          POSTGRES_PASSWORD: "test"
+          POSTGRES_USER: "postgres",
+          POSTGRES_PASSWORD: "password",
+          POSTGRES_DB: "testdb"
+        },
+        envMapping: {
+          host: "DB_HOST",
+          port: "DB_PORT",
+          username: "DB_USERNAME",
+          password: "DB_PASSWORD",
+          database: "DB_NAME",
+          url: "DATABASE_URL"
         }
       }
     }
-  ]
+  ],
+  scan: {
+    decorators: {
+      enabled: true,
+      framework: 'nestjs',
+      decorators: {
+        controllers: ['@Controller', '@RestController'],
+        routes: ['@Get', '@Post', '@Put', '@Delete', '@Patch'],
+        statusCodes: ['@HttpCode'],
+        apiDocs: ['@ApiResponse', '@ApiOperation']
+      },
+      paths: ['src'],
+      // paths: ['src/controllers', 'src/modules'],
+      exclude: ['**/*.spec.ts', '**/*.test.ts']
+    },
+    output: 'lista.json'
+  }
 };
 ```
 

@@ -51,7 +51,8 @@ export interface PromptsConfig {
       choices: PromptChoice[];
     };
     readiness: {
-      enabled: PromptConfig;
+      question: string;
+      choices: PromptChoice[];
       endpoint: PromptConfig;
       command: PromptConfig;
     };
@@ -62,8 +63,6 @@ export interface PromptsConfig {
     containerConfig: {
       image: PromptConfig;
       containerName: PromptConfig;
-      ports: PromptConfig;
-      environment: PromptConfig;
     };
   };
   databaseConfig: {
@@ -77,6 +76,10 @@ export interface PromptsConfig {
       choices: PromptChoice[];
     };
     isolation: {
+      question: string;
+      choices: PromptChoice[];
+    };
+    seedingMethod: {
       question: string;
       choices: PromptChoice[];
     };
@@ -95,8 +98,6 @@ export interface PromptsConfig {
     containerConfig: {
       image: PromptConfig;
       containerName: PromptConfig;
-      ports: PromptConfig;
-      environment: PromptConfig;
     };
     envMapping: {
       host: PromptConfig;
@@ -117,8 +118,6 @@ export interface PromptsConfig {
     containerConfig: {
       image: PromptConfig;
       containerName: PromptConfig;
-      ports: PromptConfig;
-      environment: PromptConfig;
     };
     envMapping: {
       endpoint: PromptConfig;
@@ -140,8 +139,6 @@ export interface PromptsConfig {
     containerConfig: {
       image: PromptConfig;
       containerName: PromptConfig;
-      ports: PromptConfig;
-      environment: PromptConfig;
     };
     envMapping: {
       brokers: PromptConfig;

@@ -11,21 +11,24 @@ export const PROMPTS = {
         value: "api",
         description: "Test API endpoints with real database (single service)"
       },
-      {
-        name: "E2E tests", 
-        value: "e2e",
-        description: "End-to-end testing through API Gateway to services"
-      },
-      {
-        name: "Integration tests",
-        value: "integration",
-        description: "Test communication between multiple services"
-      },
-      {
-        name: "Custom",
-        value: "custom",
-        description: "Custom testing setup"
-      }
+      // {
+      //   available: false,
+      //   name: "E2E tests", 
+      //   value: "e2e",
+      //   description: "End-to-end testing through API Gateway to services"
+      // },
+      // {
+      //   available: false,
+      //   name: "Inter-Service tests",
+      //   value: "inter",
+      //   description: "Integration tests between multiple services"
+      // },
+      // {
+      //   available: false,
+      //   name: "Intra-Service tests",
+      //   value: "intra",
+      //   description: "Integration tests within a single service"
+      // },
     ]
   },
   componentSelection: {
@@ -163,17 +166,31 @@ export const PROMPTS = {
       ]
     },
     readiness: {
-      enabled: {
-        question: "Do you want to configure health checks?",
-        default: true
-      },
+      question: "How do you want to configure health checks?",
+      choices: [
+        {
+          name: "Health check endpoint (e.g., /health)",
+          value: "endpoint",
+          description: "Use HTTP endpoint for readiness check"
+        },
+        {
+          name: "Custom command (e.g., npm run healthcheck)",
+          value: "command",
+          description: "Run custom command to check readiness"
+        },
+        {
+          name: "Skip health checks",
+          value: "skip",
+          description: "Don't configure health checks"
+        }
+      ],
       endpoint: {
         question: "Health check endpoint:",
         default: "/health"
       },
       command: {
-        question: "Custom health check command (optional):",
-        default: ""
+        question: "Custom health check command:",
+        default: "npm run healthcheck"
       }
     },
     localConfig: {
@@ -194,14 +211,6 @@ export const PROMPTS = {
       containerName: {
         question: "Container name:",
         default: "my-app"
-      },
-      ports: {
-        question: "Port mappings (host:container, comma-separated, optional):",
-        default: ""
-      },
-      environment: {
-        question: "Environment variables (KEY=VALUE, comma-separated, optional):",
-        default: ""
       }
     }
   },
@@ -285,38 +294,53 @@ export const PROMPTS = {
         }
       ]
     },
-    seeding: {
-      question: "Seeding strategy:",
+    seedingMethod: {
+      question: "How do you want to seed the database?",
       choices: [
         {
-          name: "Once for all tests",
+          name: "Command (e.g., npm run seed)",
+          value: "command",
+          description: "Run a command to seed the database"
+        },
+        {
+          name: "File (e.g., seeds/data.sql)",
+          value: "file",
+          description: "Use a seed file"
+        },
+        {
+          name: "Skip seeding",
+          value: "skip",
+          description: "Don't configure seeding"
+        }
+      ]
+    },
+    seeding: {
+      question: "Seeding strategy (when to seed):",
+      choices: [
+        {
+          name: "Once - Seed once at startup",
           value: "once",
-          description: "Seed once before all tests across all files (fastest, shared data)"
+          description: "Fastest for static test data"
         },
         {
-          name: "Per test file",
+          name: "Per-file - Seed before each test file",
           value: "per-file",
-          description: "Seed before each test file"
+          description: "Good balance between isolation and speed"
         },
         {
-          name: "Per test",
+          name: "Per-test - Seed before each test",
           value: "per-test",
-          description: "Seed before each test"
-        },
-        {
-          name: "Custom",
-          value: "custom",
-          description: "Custom seeding logic"
+          description: "Maximum isolation, slower"
         }
       ]
     },
     seedCommand: {
-      question: "Seed command (optional):",
-      default: ""
+      question: "Seed command:",
+      default: "npm run seed"
     },
     seedFile: {
-      question: "Seed file path (optional):",
-      default: ""
+      question: "Seed file path:",
+      default: "seeds/data.sql"
     },
     localConfig: {
       host: {
@@ -344,14 +368,6 @@ export const PROMPTS = {
       containerName: {
         question: "Container name:",
         default: "test-db"
-      },
-      ports: {
-        question: "Port mappings (host:container, optional):",
-        default: "5432:5432"
-      },
-      environment: {
-        question: "Environment variables (KEY=VALUE, comma-separated, optional):",
-        default: "POSTGRES_USER=postgres,POSTGRES_PASSWORD=password,POSTGRES_DB=testdb"
       }
     },
     envMapping: {
@@ -413,14 +429,6 @@ export const PROMPTS = {
       containerName: {
         question: "Container name:",
         default: "test-storage"
-      },
-      ports: {
-        question: "Port mappings (host:container, optional):",
-        default: "9000:9000,9001:9001"
-      },
-      environment: {
-        question: "Environment variables (KEY=VALUE, comma-separated, optional):",
-        default: "MINIO_ROOT_USER=minioadmin,MINIO_ROOT_PASSWORD=minioadmin"
       }
     },
     envMapping: {
@@ -512,14 +520,6 @@ export const PROMPTS = {
       containerName: {
         question: "Container name:",
         default: "test-messaging"
-      },
-      ports: {
-        question: "Port mappings (host:container, optional):",
-        default: "9092:9092"
-      },
-      environment: {
-        question: "Environment variables (KEY=VALUE, comma-separated, optional):",
-        default: "KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181,KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092"
       }
     },
     envMapping: {

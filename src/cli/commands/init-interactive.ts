@@ -149,6 +149,89 @@ export class InteractiveInit {
     }
   }
 
+  private getDefaultDatabasePorts(dbType: string): Array<{ host: number; container: number }> {
+    const portMap: Record<string, number> = {
+      'postgres': 5432,
+      'postgresql': 5432,
+      'mysql': 3306,
+      'mongodb': 27017,
+      'mongo': 27017,
+      'redis': 6379
+    };
+    
+    const port = portMap[dbType.toLowerCase()] || 5432;
+    return [{ host: port, container: port }];
+  }
+
+  private getDefaultDatabaseEnvironment(dbType: string): Record<string, string> {
+    const envMap: Record<string, Record<string, string>> = {
+      'postgres': {
+        POSTGRES_USER: 'postgres',
+        POSTGRES_PASSWORD: 'password',
+        POSTGRES_DB: 'testdb'
+      },
+      'postgresql': {
+        POSTGRES_USER: 'postgres',
+        POSTGRES_PASSWORD: 'password',
+        POSTGRES_DB: 'testdb'
+      },
+      'mysql': {
+        MYSQL_DATABASE: 'testdb',
+        MYSQL_USER: 'test',
+        MYSQL_PASSWORD: 'password',
+        MYSQL_ROOT_PASSWORD: 'root'
+      },
+      'mongodb': {
+        MONGO_INITDB_DATABASE: 'testdb',
+        MONGO_INITDB_ROOT_USERNAME: 'root',
+        MONGO_INITDB_ROOT_PASSWORD: 'password'
+      },
+      'mongo': {
+        MONGO_INITDB_DATABASE: 'testdb',
+        MONGO_INITDB_ROOT_USERNAME: 'root',
+        MONGO_INITDB_ROOT_PASSWORD: 'password'
+      },
+      'redis': {
+        REDIS_PASSWORD: 'password'
+      }
+    };
+    
+    return envMap[dbType.toLowerCase()] || {};
+  }
+
+  private getDefaultMessagingPorts(msgType: string): Array<{ host: number; container: number }> {
+    const portMap: Record<string, Array<{ host: number; container: number }>> = {
+      'kafka': [{ host: 9092, container: 9092 }],
+      'rabbitmq': [
+        { host: 5672, container: 5672 },   // AMQP
+        { host: 15672, container: 15672 }  // Management UI
+      ],
+      'nats': [{ host: 4222, container: 4222 }],
+      'redis': [{ host: 6379, container: 6379 }]
+    };
+    
+    return portMap[msgType.toLowerCase()] || [{ host: 9092, container: 9092 }];
+  }
+
+  private getDefaultMessagingEnvironment(msgType: string): Record<string, string> {
+    const envMap: Record<string, Record<string, string>> = {
+      'kafka': {
+        KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181',
+        KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
+      },
+      'rabbitmq': {
+        RABBITMQ_DEFAULT_USER: 'guest',
+        RABBITMQ_DEFAULT_PASS: 'guest'
+      },
+      'nats': {},
+      'redis': {
+        REDIS_PASSWORD: 'password'
+      }
+    };
+    
+    return envMap[msgType.toLowerCase()] || {};
+  }
+
   private async askAddMoreComponents(): Promise<boolean> {
     const { addMore } = await inquirer.prompt([
       {
@@ -289,60 +372,51 @@ export class InteractiveInit {
           name: 'containerName',
           message: this.prompts.serviceConfig.containerConfig.containerName.question,
           default: this.prompts.serviceConfig.containerConfig.containerName.default
-        },
-        {
-          type: 'input',
-          name: 'ports',
-          message: this.prompts.serviceConfig.containerConfig.ports.question,
-          default: this.prompts.serviceConfig.containerConfig.ports.default
-        },
-        {
-          type: 'input',
-          name: 'environment',
-          message: this.prompts.serviceConfig.containerConfig.environment.question,
-          default: this.prompts.serviceConfig.containerConfig.environment.default
         }
       ]);
       
-      const portsArray = containerConfig.ports ? 
-        containerConfig.ports.split(',').map((port: string) => {
-          const [host, container] = port.trim().split(':');
-          return { host: parseInt(host), container: parseInt(container) };
-        }) : [];
-      
-      const environmentObj = containerConfig.environment ? 
-        containerConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
-          const [key, value] = env.trim().split('=');
-          if (key && value) acc[key] = value;
-          return acc;
-        }, {}) : {};
+      // Set default ports based on service type (can be edited in config file)
+      const defaultPort = serviceConfig.communicationType === 'http' 
+        ? (currentComponent.config.http?.port || 3000)
+        : 3001;
       
       currentComponent.config.container = {
         image: containerConfig.image,
         containerName: containerConfig.containerName,
-        ports: portsArray,
-        environment: environmentObj
+        ports: [{ host: defaultPort, container: defaultPort }],
+        environment: {}
       };
     }
 
     // Ask for health checks
-    const readinessConfig = await inquirer.prompt([
+    const { healthCheckType } = await inquirer.prompt([
       {
-        type: 'confirm',
-        name: 'enabled',
-        message: this.prompts.serviceConfig.readiness.enabled.question,
-        default: this.prompts.serviceConfig.readiness.enabled.default
+        type: 'list',
+        name: 'healthCheckType',
+        message: this.prompts.serviceConfig.readiness.question,
+        choices: this.prompts.serviceConfig.readiness.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
       }
     ]);
 
-    if (readinessConfig.enabled) {
-      const readinessDetails = await inquirer.prompt([
+    if (healthCheckType === 'endpoint') {
+      const { endpoint } = await inquirer.prompt([
         {
           type: 'input',
           name: 'endpoint',
           message: this.prompts.serviceConfig.readiness.endpoint.question,
           default: this.prompts.serviceConfig.readiness.endpoint.default
-        },
+        }
+      ]);
+      currentComponent.config.readiness = {
+        enabled: true,
+        endpoint: endpoint,
+        command: ''
+      };
+    } else if (healthCheckType === 'command') {
+      const { command } = await inquirer.prompt([
         {
           type: 'input',
           name: 'command',
@@ -352,7 +426,15 @@ export class InteractiveInit {
       ]);
       currentComponent.config.readiness = {
         enabled: true,
-        ...readinessDetails
+        endpoint: '',
+        command: command
+      };
+    } else {
+      // Skip health checks
+      currentComponent.config.readiness = {
+        enabled: false,
+        endpoint: '',
+        command: ''
       };
     }
 
@@ -402,42 +484,67 @@ export class InteractiveInit {
           name: `${choice.name} - ${choice.description}`,
           value: choice.value
         }))
-      },
-      {
-        type: 'list',
-        name: 'seeding',
-        message: this.prompts.databaseConfig.seeding.question,
-        choices: this.prompts.databaseConfig.seeding.choices.map(choice => ({
-          name: `${choice.name} - ${choice.description}`,
-          value: choice.value
-        }))
       }
     ]);
 
     currentComponent.name = dbConfig.name;
     currentComponent.config = dbConfig;
 
-    // Ask for seeding details if needed
-    if (dbConfig.seeding === 'command') {
-      const seedCommand = await inquirer.prompt([
+    // Ask HOW to seed (method)
+    const { seedingMethod } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'seedingMethod',
+        message: this.prompts.databaseConfig.seedingMethod.question,
+        choices: this.prompts.databaseConfig.seedingMethod.choices.map(choice => ({
+          name: `${choice.name} - ${choice.description}`,
+          value: choice.value
+        }))
+      }
+    ]);
+
+    // Only ask for seeding details if not skipped
+    if (seedingMethod !== 'skip') {
+      // Ask WHEN to seed (strategy)
+      const { seedingStrategy } = await inquirer.prompt([
         {
-          type: 'input',
-          name: 'seedCommand',
-          message: this.prompts.databaseConfig.seedCommand.question,
-          default: this.prompts.databaseConfig.seedCommand.default
+          type: 'list',
+          name: 'seedingStrategy',
+          message: this.prompts.databaseConfig.seeding.question,
+          choices: this.prompts.databaseConfig.seeding.choices.map(choice => ({
+            name: `${choice.name} - ${choice.description}`,
+            value: choice.value
+          }))
         }
       ]);
-      currentComponent.config.seedCommand = seedCommand.seedCommand;
-    } else if (dbConfig.seeding === 'file') {
-      const seedFile = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'seedFile',
-          message: this.prompts.databaseConfig.seedFile.question,
-          default: this.prompts.databaseConfig.seedFile.default
-        }
-      ]);
-      currentComponent.config.seedFile = seedFile.seedFile;
+
+      currentComponent.config.seeding = seedingStrategy;
+
+      // Ask for specific seeding details based on method
+      if (seedingMethod === 'command') {
+        const { seedCommand } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'seedCommand',
+            message: this.prompts.databaseConfig.seedCommand.question,
+            default: this.prompts.databaseConfig.seedCommand.default
+          }
+        ]);
+        currentComponent.config.seedCommand = seedCommand;
+      } else if (seedingMethod === 'file') {
+        const { seedFile } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'seedFile',
+            message: this.prompts.databaseConfig.seedFile.question,
+            default: this.prompts.databaseConfig.seedFile.default
+          }
+        ]);
+        currentComponent.config.seedFile = seedFile;
+      }
+    } else {
+      // Skip seeding
+      currentComponent.config.seeding = 'once'; // Default value even if skipped
     }
 
     // Configure local or container mode for database
@@ -488,33 +595,12 @@ export class InteractiveInit {
           name: 'containerName',
           message: this.prompts.databaseConfig.containerConfig.containerName.question,
           default: this.prompts.databaseConfig.containerConfig.containerName.default
-        },
-        {
-          type: 'input',
-          name: 'ports',
-          message: this.prompts.databaseConfig.containerConfig.ports.question,
-          default: this.prompts.databaseConfig.containerConfig.ports.default
-        },
-        {
-          type: 'input',
-          name: 'environment',
-          message: this.prompts.databaseConfig.containerConfig.environment.question,
-          default: this.prompts.databaseConfig.containerConfig.environment.default
         }
       ]);
       
-      const portsArray = containerDbConfig.ports ? 
-        containerDbConfig.ports.split(',').map((port: string) => {
-          const [host, container] = port.trim().split(':');
-          return { host: parseInt(host), container: parseInt(container) };
-        }) : [];
-      
-      const environmentObj = containerDbConfig.environment ? 
-        containerDbConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
-          const [key, value] = env.trim().split('=');
-          if (key && value) acc[key] = value;
-          return acc;
-        }, {}) : {};
+      // Set default ports and environment based on database type
+      const defaultPorts = this.getDefaultDatabasePorts(dbConfig.type);
+      const defaultEnvironment = this.getDefaultDatabaseEnvironment(dbConfig.type);
       
       // Ask for environment mapping
       const envMapping = await inquirer.prompt([
@@ -559,8 +645,8 @@ export class InteractiveInit {
       currentComponent.config.container = {
         image: containerDbConfig.image,
         containerName: containerDbConfig.containerName,
-        ports: portsArray,
-        environment: environmentObj,
+        ports: defaultPorts,
+        environment: defaultEnvironment,
         envMapping: envMapping
       };
     }
@@ -624,33 +710,18 @@ export class InteractiveInit {
           name: 'containerName',
           message: this.prompts.storageConfig.containerConfig.containerName.question,
           default: this.prompts.storageConfig.containerConfig.containerName.default
-        },
-        {
-          type: 'input',
-          name: 'ports',
-          message: this.prompts.storageConfig.containerConfig.ports.question,
-          default: this.prompts.storageConfig.containerConfig.ports.default
-        },
-        {
-          type: 'input',
-          name: 'environment',
-          message: this.prompts.storageConfig.containerConfig.environment.question,
-          default: this.prompts.storageConfig.containerConfig.environment.default
         }
       ]);
       
-      const portsArray = containerStorageConfig.ports ? 
-        containerStorageConfig.ports.split(',').map((port: string) => {
-          const [host, container] = port.trim().split(':');
-          return { host: parseInt(host), container: parseInt(container) };
-        }) : [];
-      
-      const environmentObj = containerStorageConfig.environment ? 
-        containerStorageConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
-          const [key, value] = env.trim().split('=');
-          if (key && value) acc[key] = value;
-          return acc;
-        }, {}) : {};
+      // Set default ports and environment for storage (MinIO)
+      const defaultPorts = [
+        { host: 9000, container: 9000 },  // API port
+        { host: 9001, container: 9001 }   // Console port
+      ];
+      const defaultEnvironment = {
+        MINIO_ROOT_USER: 'minioadmin',
+        MINIO_ROOT_PASSWORD: 'minioadmin'
+      };
       
       // Ask for environment mapping
       const envMapping = await inquirer.prompt([
@@ -683,8 +754,8 @@ export class InteractiveInit {
       currentComponent.config.container = {
         image: containerStorageConfig.image,
         containerName: containerStorageConfig.containerName,
-        ports: portsArray,
-        environment: environmentObj,
+        ports: defaultPorts,
+        environment: defaultEnvironment,
         envMapping: envMapping
       };
     }
@@ -764,33 +835,12 @@ export class InteractiveInit {
           name: 'containerName',
           message: this.prompts.messagingConfig.containerConfig.containerName.question,
           default: this.prompts.messagingConfig.containerConfig.containerName.default
-        },
-        {
-          type: 'input',
-          name: 'ports',
-          message: this.prompts.messagingConfig.containerConfig.ports.question,
-          default: this.prompts.messagingConfig.containerConfig.ports.default
-        },
-        {
-          type: 'input',
-          name: 'environment',
-          message: this.prompts.messagingConfig.containerConfig.environment.question,
-          default: this.prompts.messagingConfig.containerConfig.environment.default
         }
       ]);
       
-      const portsArray = containerMessagingConfig.ports ? 
-        containerMessagingConfig.ports.split(',').map((port: string) => {
-          const [host, container] = port.trim().split(':');
-          return { host: parseInt(host), container: parseInt(container) };
-        }) : [];
-      
-      const environmentObj = containerMessagingConfig.environment ? 
-        containerMessagingConfig.environment.split(',').reduce((acc: Record<string, string>, env: string) => {
-          const [key, value] = env.trim().split('=');
-          if (key && value) acc[key] = value;
-          return acc;
-        }, {}) : {};
+      // Set default ports and environment based on messaging type
+      const defaultPorts = this.getDefaultMessagingPorts(messagingConfig.type);
+      const defaultEnvironment = this.getDefaultMessagingEnvironment(messagingConfig.type);
       
       // Ask for environment mapping
       const envMapping = await inquirer.prompt([
@@ -823,8 +873,8 @@ export class InteractiveInit {
       currentComponent.config.container = {
         image: containerMessagingConfig.image,
         containerName: containerMessagingConfig.containerName,
-        ports: portsArray,
-        environment: environmentObj,
+        ports: defaultPorts,
+        environment: defaultEnvironment,
         envMapping: envMapping
       };
     }

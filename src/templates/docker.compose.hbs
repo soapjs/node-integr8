@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: \${DB_NAME:-soapjs_test}
+      POSTGRES_USER: \${DB_USER:-postgres}
+      POSTGRES_PASSWORD: \${DB_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - integr8-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.integr8
+    ports:
+      - "\${APP_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=test
+      - TEST_MODE=1
+      - DATABASE_URL=postgresql://\${DB_USER:-postgres}:\${DB_PASSWORD:-password}@postgres:5432/\${DB_NAME:-soapjs_test}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - integr8-network
+
+networks:
+  integr8-network:
+    driver: bridge

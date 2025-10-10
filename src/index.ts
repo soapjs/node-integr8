@@ -1,8 +1,5 @@
 export * from './types';
 
-export * from './adapters/express-adapter';
-export * from './adapters/nestjs-adapter';
-
 export * from './core/environment-orchestrator';
 export * from './core/http-client';
 export * from './core/test-context';
